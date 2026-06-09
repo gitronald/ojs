@@ -86,11 +86,10 @@ precedence): `~/.config/ojs/.env` by default, or the file named by
 | --- | --- | --- |
 | `OJS_BASE_URL` | (required for `api`) | OJS journal URL (e.g. `https://example.org/index.php/myjournal`) |
 | `OJS_API_KEY` | (required for `api`) | OJS API token |
-| `OJS_DATA_DIR` | `data/ojs-api` | Root for inputs and outputs |
-| `OJS_DOWNLOADS_DIR` | `data/ojs-website` | Where CSV exports land |
-| `OJS_ARTICLES_DIR` | `$OJS_DATA_DIR/articles` | Articles output dir |
-| `OJS_REVIEWS_DIR` | `$OJS_DATA_DIR/reviews` | Reviews output dir |
-| `OJS_API_DIR` | `$OJS_DATA_DIR` | API JSON dump dir |
+| `OJS_DOWNLOADS_DIR` | `data/ojs-website` | Website CSV exports + normalized output |
+| `OJS_ARTICLES_DIR` | `$OJS_DOWNLOADS_DIR/articles` | Articles output dir |
+| `OJS_REVIEWS_DIR` | `$OJS_DOWNLOADS_DIR/reviews` | Reviews output dir |
+| `OJS_API_DIR` | `data/ojs-api` | API JSON dump dir |
 | `OJS_FILES_DIR` | `$OJS_API_DIR/files` | Where downloaded submission files land |
 
 ## CLI Commands
@@ -215,4 +214,4 @@ The OJS API has no server-side "modified since" filter, so incremental cannot de
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input). `.env` is gitignored — keep it out of version control and out of shared locations.
-- The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_DATA_DIR` at a private directory so other local users can't read them.
+- The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.

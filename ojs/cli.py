@@ -70,24 +70,20 @@ ARTICLES_GLOB = "articles-*.csv"
 REVIEWS_GLOB = "reviews-*.csv"
 
 
-def _data_dir() -> Path:
-    return Path(os.environ.get("OJS_DATA_DIR", "data/ojs-api"))
-
-
 def _downloads_dir() -> Path:
     return Path(os.environ.get("OJS_DOWNLOADS_DIR", "data/ojs-website"))
 
 
 def _articles_dir() -> Path:
-    return Path(os.environ.get("OJS_ARTICLES_DIR", _data_dir() / "articles"))
+    return Path(os.environ.get("OJS_ARTICLES_DIR", _downloads_dir() / "articles"))
 
 
 def _reviews_dir() -> Path:
-    return Path(os.environ.get("OJS_REVIEWS_DIR", _data_dir() / "reviews"))
+    return Path(os.environ.get("OJS_REVIEWS_DIR", _downloads_dir() / "reviews"))
 
 
 def _api_dir() -> Path:
-    return Path(os.environ.get("OJS_API_DIR", _data_dir()))
+    return Path(os.environ.get("OJS_API_DIR", "data/ojs-api"))
 
 
 def _files_dir() -> Path:
@@ -110,9 +106,6 @@ def _env_quote(value: str) -> str:
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing .env"),
     base_url: str = typer.Option("", "--base-url", help="OJS_BASE_URL value"),
-    data_dir: str = typer.Option(
-        "data/ojs-api", "--data-dir", help="OJS_DATA_DIR value"
-    ),
 ) -> None:
     """Scaffold a .env file in the current directory."""
     env_path = Path(".env").resolve()
@@ -135,7 +128,6 @@ def init(
     lines = [
         f"OJS_BASE_URL={_env_quote(base_url)}",
         f"OJS_API_KEY={_env_quote(api_key)}",
-        f"OJS_DATA_DIR={_env_quote(data_dir)}",
         "",
     ]
     env_path.write_text("\n".join(lines))
