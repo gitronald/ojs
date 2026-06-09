@@ -31,7 +31,7 @@ dev = [
     "pyrefly>=1.0.0",
     "pytest>=9.0.2",
     "pytest-cov",
-    "ruff>=0.15",
+    "ruff>=0.15.16",
 ]
 
 [tool.ruff]
