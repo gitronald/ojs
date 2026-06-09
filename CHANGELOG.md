@@ -1,0 +1,44 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.7.1] - 2026-06-08
+
+- `OJS_DOWNLOADS_DIR` now defaults to `data/ojs-website` (was `$OJS_DATA_DIR/website-downloads`), placing website CSV exports beside the API data rather than nested under it.
+
+## [0.7.0] - 2026-06-08
+
+- Add a user-level config fallback (`~/.config/ojs/.env` by default, or the file named by `OJS_CONFIG_PATH`) for values not set in the local `.env`; drop the `ojs init --api-key` flag (the key comes only from `OJS_API_KEY` or the hidden prompt).
+
+## [0.6.0] - 2026-06-08
+
+- Make the CSV export globs fixed package constants (drop the `OJS_ARTICLES_GLOB` / `OJS_REVIEWS_GLOB` env vars); default the data directory to `data/ojs-api` with the API JSON at its root; infer the `submission_files` schema from all rows.
+
+## [0.5.0] - 2026-06-05
+
+- Add an `interval` column to the view-stats timelines so day/month points stay separable; write API JSON dumps atomically; always pull cumulative `publication_stats` in full; redact the API token from HTTP error messages; constrain file writes to the download tree; tolerate JSON `null` in normalization.
+
+## [0.4.0] - 2026-06-05
+
+- Add the typed schema framework (`ojs/schema.py`: `Column`/`Table`) as the runtime source of truth for normalization, with `ojs api schema` exporting `table_schemas.csv`; move the website CSV pipelines under `ojs.website`.
+
+## [0.3.2] - 2026-06-05
+
+- Log unservable files to `skipped.json`; drop zero-view days from the per-submission `views_timeline`; unwrap the `{items, itemsMax}` envelope for submission files.
+
+## [0.3.0] - 2026-06-01
+
+- Add `ojs api download` for submission file artifacts (manifest-tracked, incremental) and a journal-wide `views_timeline_totals` table; normalize empty localized values to `null`.
+
+## [0.2.1] - 2026-05-28
+
+- Bump runtime dependencies and dev tooling (polars, typer, ruff, pyrefly).
+
+## [0.2.0] - 2026-05-28
+
+- Add incremental fetch (`ojs api fetch --incremental`/`--full`, with a sync-state watermark) and publication view stats (`publication_stats`, `views_timeline`).
