@@ -1,10 +1,10 @@
 ---
 id: 2
 slug: reviews-csv-collection
-status: active
+status: done
 branch: feature/website-report-fetch
 created: 2026-06-08T22:33:49-07:00
-concluded:
+concluded: 2026-07-08T18:47:36-07:00
 pr: https://github.com/gitronald/ojs/pull/13
 ---
 
@@ -170,3 +170,39 @@ manual step run outside CI, since the credentials and URL are instance-specific.
   form fields and CSRF requirement still need confirming against the live target
   at manual test time (the CSRF token is scraped and echoed when present, and both
   hidden-input and JS-variable token forms are handled, to maximize compatibility).
+
+### Review follow-up (close, 2026-07-08)
+
+`/code-review` at extra-high effort on the PR #13 diff. The module, CLI wiring,
+and 18-test suite came back clean: atomic write mirrors `api/sync.write_json`
+(no temp-file leak, tested), the password never reaches logs or error messages,
+`fetch_report` returns raw `content` so BOM/encoding round-trips losslessly, and
+the `fetch -> norm` filename/glob handoff holds (zero-padded dates sort
+chronologically).
+
+- **Actioned:** one low-severity doc inaccuracy -- the Security section said
+  `OJS_DOWNLOADS_DIR` defaults to `data/`, but the real default is
+  `data/ojs-website` (contradicting the config table). Fixed at the source in
+  `README.md`; no test surface (doc-only). Gate re-run clean: 123 passed, ruff +
+  format + pyrefly all clean.
+- **No** correctness, security, or convention findings.
+
+## Retrospective
+
+- Factoring the download machinery into one shared `ojs/website/reports.py` up
+  front (rather than a reviews-only fetcher) paid off: `articles fetch` was pure
+  wiring, and both commands share the same login/CSRF/sniff/atomic-write path.
+- The one spec deviation was forced by the harness, not the design: `init` can't
+  prompt for `OJS_USERNAME`/`OJS_PASSWORD` because an empty-stdin prompt aborts
+  under CI, so it scaffolds the keys from the environment (blank otherwise)
+  instead -- non-interactive-safe and still discoverable.
+- Defense-in-depth on the auth boundary reviewed well: sniffing HTML-vs-CSV on
+  the report body stops a re-rendered login page from silently landing in a
+  `.csv`, and keeping the password out of both logs and httpx error text was
+  verified, not assumed.
+- Open risk carried to manual test time: the exact login-form fields and whether
+  the instance gates sign-in on CSRF are unconfirmed against the live target. The
+  scraper handles both token forms and omits the token when absent to widen
+  compatibility, but only a real login proves it.
+- Review surfaced only a doc-default mismatch -- a good signal the
+  implementation and tests were already tight.
