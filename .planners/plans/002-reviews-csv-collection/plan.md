@@ -5,7 +5,7 @@ status: active
 branch: feature/website-report-fetch
 created: 2026-06-08T22:33:49-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/13
 ---
 
 # Add website report collection for reviews and articles CSV exports
