@@ -86,6 +86,10 @@ precedence): `~/.config/ojs/.env` by default, or the file named by
 | --- | --- | --- |
 | `OJS_BASE_URL` | (required for `api`) | OJS journal URL (e.g. `https://example.org/index.php/myjournal`) |
 | `OJS_API_KEY` | (required for `api`) | OJS API token |
+| `OJS_USERNAME` | (required for website `fetch`) | Editorial-manager login username |
+| `OJS_PASSWORD` | (required for website `fetch`) | Password for that account |
+| `OJS_REVIEWS_REPORT_URL` | (required for `reviews fetch`) | Review Report export URL (absolute, or a path relative to `OJS_BASE_URL`) |
+| `OJS_ARTICLES_REPORT_URL` | (required for `articles fetch`) | Articles Report export URL (absolute, or a path relative to `OJS_BASE_URL`) |
 | `OJS_DOWNLOADS_DIR` | `data/ojs-website` | Website CSV exports + normalized output |
 | `OJS_ARTICLES_DIR` | `$OJS_DOWNLOADS_DIR/articles` | Articles output dir |
 | `OJS_REVIEWS_DIR` | `$OJS_DOWNLOADS_DIR/reviews` | Reviews output dir |
@@ -113,21 +117,34 @@ ojs api schema              # export table_schemas.csv docs
 
 ### Articles
 
-Normalize the OJS dashboard's Articles Report CSV export.
+Fetch and normalize the OJS dashboard's Articles Report CSV export.
 
 ```bash
+ojs articles fetch          # download the latest articles export from the website
 ojs articles norm           # normalize the most recent articles export
 ojs articles schema         # export table_schemas.csv docs
 ```
 
 ### Reviews
 
-Normalize the OJS dashboard's Review Report CSV export.
+Fetch and normalize the OJS dashboard's Review Report CSV export.
 
 ```bash
+ojs reviews fetch           # download the latest reviews export from the website
 ojs reviews norm            # normalize the most recent reviews export
 ojs reviews schema          # export table_schemas.csv docs
 ```
+
+### Website report fetch
+
+The Articles and Review reports are OJS dashboard exports (Statistics > Tools),
+not REST endpoints, so `fetch` authenticates differently from the `api` commands:
+it logs in with `OJS_USERNAME` / `OJS_PASSWORD` to establish a session, then
+downloads the report at `OJS_REVIEWS_REPORT_URL` / `OJS_ARTICLES_REPORT_URL`. The
+CSV lands in `OJS_DOWNLOADS_DIR` as `reviews-<YYYYMMDD>.csv` /
+`articles-<YYYYMMDD>.csv`, where the matching `norm` command picks up the newest
+file. The report URLs are instance-specific — set them in `.env` (see
+`.env.example`).
 
 ### Article view stats
 
@@ -213,5 +230,6 @@ The OJS API has no server-side "modified since" filter, so incremental cannot de
 
 ## Security & privacy
 
-- The API token lives in `.env` (the `init` prompt hides input). `.env` is gitignored — keep it out of version control and out of shared locations.
+- The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
 - The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
+- The fetched website reports (`reviews-*.csv`, `articles-*.csv`) and their normalized tables likewise carry reviewer and author names, emails, and ORCIDs. They write under `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, under the gitignored `data/`) — apply the same umask/private-directory care as for the API dumps.

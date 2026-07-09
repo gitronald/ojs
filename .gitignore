@@ -12,6 +12,9 @@ build/
 dist/
 *.egg-info/
 
+# Fetched exports + normalized output (holds reviewer/author personal data)
+/data/
+
 .DS_Store
 
 .coverage

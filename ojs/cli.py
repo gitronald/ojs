@@ -125,18 +125,83 @@ def init(
         "OJS_API_KEY", default="", hide_input=True
     )
 
+    # Website report-fetch config (optional; only the `reviews`/`articles fetch`
+    # commands need it). Scaffolded from the environment when set, else left blank
+    # for the user to fill in -- not prompted, so `init` stays non-interactive-safe
+    # (an empty-stdin prompt would abort). The report URLs are instance-specific.
+    username = os.environ.get("OJS_USERNAME", "")
+    password = os.environ.get("OJS_PASSWORD", "")
+    reviews_report_url = os.environ.get("OJS_REVIEWS_REPORT_URL", "")
+    articles_report_url = os.environ.get("OJS_ARTICLES_REPORT_URL", "")
+
     lines = [
         f"OJS_BASE_URL={_env_quote(base_url)}",
         f"OJS_API_KEY={_env_quote(api_key)}",
+        f"OJS_USERNAME={_env_quote(username)}",
+        f"OJS_PASSWORD={_env_quote(password)}",
+        f"OJS_REVIEWS_REPORT_URL={_env_quote(reviews_report_url)}",
+        f"OJS_ARTICLES_REPORT_URL={_env_quote(articles_report_url)}",
         "",
     ]
     env_path.write_text("\n".join(lines))
-    # The file holds OJS_API_KEY; keep it owner-only regardless of umask so it is
-    # not world-readable on a shared host. chmod (not a 0600 open) also re-tightens
-    # an existing .env when regenerating with --force. (No-op on Windows, where
-    # POSIX mode bits don't apply -- rely on directory/ACL access control there.)
+    # The file holds secrets (OJS_API_KEY, OJS_PASSWORD); keep it owner-only
+    # regardless of umask so it is not world-readable on a shared host. chmod (not
+    # a 0600 open) also re-tightens an existing .env when regenerating with
+    # --force. (No-op on Windows, where POSIX mode bits don't apply -- rely on
+    # directory/ACL access control there.)
     env_path.chmod(0o600)
     print(f"Wrote {env_path}")
+
+
+def _report_fetch(report_env: str, name: str) -> None:
+    """Download a website report CSV via authenticated login.
+
+    Shared by `reviews fetch` and `articles fetch`: validates the website config,
+    logs in with the editorial-manager credentials, downloads the report URL named
+    by `report_env`, and writes it as `{name}-<YYYYMMDD>.csv` into OJS_DOWNLOADS_DIR
+    -- the directory `{name} norm` already globs -- so the fetch -> norm handoff
+    works unchanged.
+    """
+    from ojs.website.reports import (
+        ReportAuthError,
+        download_report,
+        resolve_report_url,
+    )
+
+    base_url = os.environ.get("OJS_BASE_URL")
+    username = os.environ.get("OJS_USERNAME")
+    password = os.environ.get("OJS_PASSWORD")
+    report_url = os.environ.get(report_env)
+    if not base_url or not username or not password or not report_url:
+        missing = [
+            var
+            for var, value in (
+                ("OJS_BASE_URL", base_url),
+                ("OJS_USERNAME", username),
+                ("OJS_PASSWORD", password),
+                (report_env, report_url),
+            )
+            if not value
+        ]
+        print(f"Error: {', '.join(missing)} must be set to fetch the {name} report.")
+        raise typer.Exit(1)
+
+    dest = _downloads_dir() / f"{name}-{date.today():%Y%m%d}.csv"
+    resolved = resolve_report_url(base_url, report_url)
+    print(f"Logging in to OJS as {username} and downloading the {name} report...")
+    try:
+        download_report(
+            base_url=base_url,
+            username=username,
+            password=password,
+            report_url=resolved,
+            dest=dest,
+        )
+    except ReportAuthError as e:
+        print(f"Error: {e}")
+        raise typer.Exit(1) from e
+
+    print(f"Saved {name} report to {dest}")
 
 
 @articles_app.command("schema")
@@ -163,6 +228,12 @@ def articles_norm() -> None:
     normalize(input_file=matches[0], output_dir=out_dir)
 
 
+@articles_app.command("fetch")
+def articles_fetch() -> None:
+    """Download the latest Articles Report CSV from the OJS website."""
+    _report_fetch("OJS_ARTICLES_REPORT_URL", "articles")
+
+
 @reviews_app.command("schema")
 def reviews_schema() -> None:
     """Generate schema documentation for review tables."""
@@ -185,6 +256,12 @@ def reviews_norm() -> None:
         raise typer.Exit(1)
 
     normalize_reviews(input_file=matches[0], output_dir=out_dir)
+
+
+@reviews_app.command("fetch")
+def reviews_fetch() -> None:
+    """Download the latest Review Report CSV from the OJS website."""
+    _report_fetch("OJS_REVIEWS_REPORT_URL", "reviews")
 
 
 @api_app.command("fetch")
