@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-08
+
 - Bump runtime dependencies and dev tooling (polars 1.42.0, typer 0.26.8, ruff 0.15.20, pyrefly 1.1.1, pytest 9.1.1).
 - Pin GitHub Actions to commit SHAs in the publish and test workflows, and drop the redundant github-actions cooldown from the Dependabot config.
 
