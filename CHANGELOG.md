@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-08
+
+- Bump runtime dependencies and dev tooling (polars 1.42.0, typer 0.26.8, ruff 0.15.20, pyrefly 1.1.1, pytest 9.1.1).
+- Pin GitHub Actions to commit SHAs in the publish and test workflows, and drop the redundant github-actions cooldown from the Dependabot config.
+
 ## [0.8.0] - 2026-07-08
 
 - Add `ojs reviews fetch` and `ojs articles fetch`, which log in to the OJS website with `OJS_USERNAME` / `OJS_PASSWORD` and download the instance-specific report CSVs (`OJS_REVIEWS_REPORT_URL` / `OJS_ARTICLES_REPORT_URL`) as `{name}-<YYYYMMDD>.csv` into `OJS_DOWNLOADS_DIR`, so the `fetch` to `norm` handoff needs no manual export; `ojs init` scaffolds the new keys.
