@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-08
+
+- Add `ojs reviews fetch` and `ojs articles fetch`, which log in to the OJS website with `OJS_USERNAME` / `OJS_PASSWORD` and download the instance-specific report CSVs (`OJS_REVIEWS_REPORT_URL` / `OJS_ARTICLES_REPORT_URL`) as `{name}-<YYYYMMDD>.csv` into `OJS_DOWNLOADS_DIR`, so the `fetch` to `norm` handoff needs no manual export; `ojs init` scaffolds the new keys.
+- Breaking: drop `OJS_DATA_DIR` (and the `ojs init --data-dir` flag); output directories now split by source into `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, website exports) and `OJS_API_DIR` (default `data/ojs-api`, API data), with the articles and reviews directories defaulting under `OJS_DOWNLOADS_DIR`.
+- Bump `idna` to 3.18 to resolve PYSEC-2026-215.
+
+## [0.7.2] - 2026-06-08
+
+- First public release (history squashed into the initial commit).
+
 ## [0.7.1] - 2026-06-08
 
 - `OJS_DOWNLOADS_DIR` now defaults to `data/ojs-website` (was `$OJS_DATA_DIR/website-downloads`), placing website CSV exports beside the API data rather than nested under it.
