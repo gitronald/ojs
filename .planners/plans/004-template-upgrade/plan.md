@@ -1,11 +1,11 @@
 ---
 id: 4
 slug: template-upgrade
-status: active
+status: done
 branch: feature/template-upgrade
 created: 2026-09-06T21:56:35-07:00
-concluded:
-pr:
+concluded: 2026-09-06T22:10:35-07:00
+pr: https://github.com/gitronald/ojs/pull/24
 ---
 
 # Upgrade tooling to the proj-template 0.8 standard
@@ -64,3 +64,8 @@ not tracking SHA pins) does not hold here.
   kept as is (it adds a non-mutating `ruff format --check`).
 - Dependabot PR #20 proposed the same checkout and setup-uv SHAs and an older
   pypi-publish (v1.14.1); this branch lands v1.14.2, so that PR is superseded.
+- 2026-09-06: Code review at medium level found nothing to fix (the one
+  candidate, the per-invocation coverage gate, is the template's intended
+  design; `pytest --no-cov` remains the escape hatch for subset runs). CI
+  logs confirmed each matrix cell ran its own interpreter. Merged as PR #24
+  into `dev`; worktree and feature branch removed.
