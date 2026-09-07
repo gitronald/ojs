@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Sync the dev tooling with the project template: trim the sdist to the package, README, changelog, and license; run `pytest` with branch coverage by default and fail below an 86% floor; bump the ruff pre-commit hook to v0.16.1 and the checkout, setup-uv, and PyPI publish actions in the workflows.
+
 ## [0.8.1] - 2026-07-08
 
 - Bump runtime dependencies and dev tooling (polars 1.42.0, typer 0.26.8, ruff 0.15.20, pyrefly 1.1.1, pytest 9.1.1).
