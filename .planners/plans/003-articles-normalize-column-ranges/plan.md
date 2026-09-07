@@ -24,8 +24,8 @@ pr:
 unpivots:
 
 ```python
-AUTHOR_RANGE = range(1, 16)    # authors 1-15
-EDITOR_RANGE = range(1, 5)     # editors 1-4
+AUTHOR_RANGE = range(1, 16)  # authors 1-15
+EDITOR_RANGE = range(1, 5)  # editors 1-4
 DECISION_RANGE = range(1, 10)  # decisions 1-9
 ```
 

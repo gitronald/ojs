@@ -18,14 +18,15 @@ SECTION_MAP = {
 }
 
 
-def _seq_key(value: object) -> float:
+def _author_seq_key(author: dict[str, Any]) -> float:
     """Sort key for an author's ``seq``, coercing null/missing/non-numeric to 0.
 
     OJS serializes an unset ``seq`` as JSON ``null``; sorting ``None`` against an
     int raises ``TypeError``, so non-numeric values fold to 0 (the sort is stable,
     so equal keys keep input order).
     """
-    return value if isinstance(value, (int, float)) else 0
+    seq = author.get("seq")
+    return seq if isinstance(seq, (int, float)) else 0
 
 
 def normalize_submissions(
@@ -138,9 +139,10 @@ def normalize_authors(
     for pub in publications:
         sub_id = pub["_submission_id"]
         # Sort by seq for display order, then assign 1-indexed author_number.
-        # `or []` guards a null authors list; _seq_key folds a null/missing seq
-        # to 0 (sorting None vs int crashes).
-        authors = sorted(pub.get("authors") or [], key=lambda a: _seq_key(a.get("seq")))
+        # `or []` guards a null authors list; _author_seq_key folds a null/missing
+        # seq to 0 (sorting None vs int crashes).
+        raw_authors: list[dict[str, Any]] = pub.get("authors") or []
+        authors = sorted(raw_authors, key=_author_seq_key)
         for n, author in enumerate(authors, start=1):
             email = author.get("email") or None
             rows.append(
