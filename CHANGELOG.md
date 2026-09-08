@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 - Documentation: generalize the website schema module docstrings, document `OJS_CONFIG_PATH` in the README env var table, sync the README project-structure tree with the package (adding `website/reports.py` and the per-pipeline `normalize`/`schemas` modules), and link the changelog from the README.
+- Documentation: add a README "Normalized output" section covering the CSV output format, the per-command output directories, and a reference for all thirteen normalized tables; surface the view-stats `interval` upgrade note (run a one-time `ojs api fetch --full` after upgrading) from the `api fetch` help text into the README.
 
 ## [0.8.3] - 2026-09-08
 
