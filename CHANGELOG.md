@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-09-08
+
 - Bump runtime dependencies and dev tooling (polars 1.44.1, typer 0.27.2, ruff 0.16.5, pyrefly 1.2.0, python-dotenv 1.2.3, pre-commit 4.6.2), and rename the deprecated `ruff` pre-commit hook id to `ruff-check`.
 
 ## [0.8.2] - 2026-09-06
