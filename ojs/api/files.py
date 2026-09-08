@@ -14,6 +14,7 @@ OJS distinguishes two axes that both matter when downloading:
   (its own ``fileId``), so we download and track them individually.
 """
 
+import logging
 import re
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
@@ -23,6 +24,8 @@ import httpx
 
 from ojs.api.client import SKIP_STATUSES, _http_client, _request_with_retry
 from ojs.utils import localized
+
+logger = logging.getLogger(__name__)
 
 # OJS / PKP `SubmissionFile` stage constants (the ids the API validates on
 # `fileStage`). 7 (fair copy) and 8 (editor) are deprecated upstream but still
@@ -224,7 +227,7 @@ def download_files(
                                 "reason": e.response.reason_phrase,
                             }
                         )
-                        print(
+                        logger.info(
                             f"  Skipping file {file_id}: {e.response.status_code} "
                             f"{e.response.reason_phrase}"
                         )
@@ -266,10 +269,10 @@ def download_files(
                         # arbitrary file deletion outside dest_dir.
                         if _is_within(dest_dir, orphan):
                             orphan.unlink(missing_ok=True)
-                print(f"  Downloaded {dest.relative_to(dest_dir)} ({size} bytes)")
+                logger.info(f"  Downloaded {dest.relative_to(dest_dir)} ({size} bytes)")
 
     if skipped:
-        print(f"  Skipped {skipped} already-downloaded files")
+        logger.info(f"  Skipped {skipped} already-downloaded files")
     if failed_records:
-        print(f"  Skipped {len(failed_records)} inaccessible files (403/404)")
+        logger.info(f"  Skipped {len(failed_records)} inaccessible files (403/404)")
     return new_records, failed_records

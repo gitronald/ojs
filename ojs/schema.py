@@ -14,12 +14,15 @@ Datetime columns must be declared fully-specified as ``pl.Datetime("us")``
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 # A polars dtype, in either instance form (``pl.Datetime("us")``) or the
 # non-parametric class form (``pl.Int64``); both are accepted by ``pl.Schema``.
@@ -179,7 +182,10 @@ class Table:
 
         unexpected = [c for c in df.columns if c not in schema_names]
         if unexpected:
-            print(
+            # The "WARNING" prefix is kept in the message text: the CLI renders
+            # records bare (no level name), so this is what marks it as a warning
+            # in the command output.
+            logger.warning(
                 f"WARNING [{cls.name}]: dropping {len(unexpected)} column(s) not "
                 f"in schema: {unexpected}"
             )
@@ -205,10 +211,10 @@ def write_schema_docs(tables: tuple[type[Table], ...], output_file: Path) -> Non
     """Write ``table_schemas.csv`` documentation for the given table classes."""
     rows = [row for table in tables for row in table.doc_rows()]
     pl.DataFrame(rows).write_csv(output_file)
-    print(f"Schema documentation saved to {output_file}")
+    logger.info(f"Schema documentation saved to {output_file}")
 
-    print("\nSchema Summary:")
+    logger.info("\nSchema Summary:")
     counts = Counter(row["table_name"] for row in rows)
     for table_name, count in counts.items():
-        print(f"  {table_name}: {count} columns")
-    print(f"\nTotal: {len(rows)} columns across {len(counts)} tables")
+        logger.info(f"  {table_name}: {count} columns")
+    logger.info(f"\nTotal: {len(rows)} columns across {len(counts)} tables")

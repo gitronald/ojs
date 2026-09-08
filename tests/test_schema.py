@@ -93,7 +93,7 @@ def test_apply_casts_parses_and_orders():
     assert out["when"][1] is None  # unparseable -> null
 
 
-def test_apply_drops_unexpected_and_excludes_dropped(capsys):
+def test_apply_drops_unexpected_and_excludes_dropped(caplog):
     raw = pl.DataFrame(
         {
             "submission_id": [1],
@@ -108,19 +108,19 @@ def test_apply_drops_unexpected_and_excludes_dropped(capsys):
     # unexpected column dropped; dropped-flagged column excluded from output
     assert "surprise" not in out.columns
     assert "dropped_col" not in out.columns
-    warning = capsys.readouterr().out
+    warning = caplog.text
     assert "surprise" in warning  # unexpected column is surfaced
     assert "dropped_col" not in warning  # intended exclusion is not noisy
 
 
-def test_apply_allows_subset_without_warning(capsys):
+def test_apply_allows_subset_without_warning(caplog):
     # missing a schema column (when) is an allowed subset -> no warning, no fill
     raw = pl.DataFrame(
         {"submission_id": [1], "given_name": ["x"], "author_number": [1]}
     )
     out = Sample.apply(raw)
     assert out.columns == ["submission_id", "given_name", "author_number"]
-    assert "WARNING" not in capsys.readouterr().out
+    assert "WARNING" not in caplog.text
 
 
 # --------------------------------------------------------------------------- #
@@ -312,7 +312,7 @@ def _write_articles_csv(path) -> None:
     pl.DataFrame([row]).write_csv(path)
 
 
-def test_article_normalize_matches_schema(tmp_path, capsys):
+def test_article_normalize_matches_schema(tmp_path, caplog):
     from ojs.website.articles import normalize as A
     from ojs.website.articles.schemas import Authors, Decisions, Editors, Submissions
 
@@ -343,10 +343,10 @@ def test_article_normalize_matches_schema(tmp_path, capsys):
     assert decisions["decision"].to_list() == ["Accept"]
 
     # the unmapped raw column is surfaced, not silently dropped
-    assert "Mystery Column" in capsys.readouterr().out
+    assert "Mystery Column" in caplog.text
 
 
-def test_reviews_normalize_matches_schema(tmp_path, capsys):
+def test_reviews_normalize_matches_schema(tmp_path, caplog):
     from ojs.website.reviews import normalize as R
     from ojs.website.reviews.schemas import Reviews
 
@@ -389,7 +389,7 @@ def test_reviews_normalize_matches_schema(tmp_path, capsys):
     assert reviews.columns == [c.name for c in Reviews.columns if not c.dropped]
     assert "stage" not in reviews.columns  # documented-dropped
     assert reviews["declined"].to_list() == [False]  # Yes/No -> bool
-    assert "Mystery" in capsys.readouterr().out  # unmapped surfaced
+    assert "Mystery" in caplog.text  # unmapped surfaced
 
 
 def test_write_schema_docs_emits_in_output_flag(tmp_path):

@@ -8,11 +8,14 @@ output may be a subset of the schema (always-empty columns are dropped); raw
 columns no table accounts for are surfaced rather than silently dropped.
 """
 
+import logging
 from pathlib import Path
 
 import polars as pl
 
 from ojs.website.articles.schemas import Authors, Decisions, Editors, Submissions
+
+logger = logging.getLogger(__name__)
 
 # Numbered-column ranges in the wide export (author/editor/decision indices).
 AUTHOR_RANGE = range(1, 16)
@@ -113,7 +116,7 @@ def _warn_dropped_anomalies(submissions: pl.DataFrame) -> None:
         if col in submissions.columns:
             non_null_count = submissions[col].drop_nulls().len()
             if non_null_count > 0:
-                print(
+                logger.warning(
                     f"WARNING: Column '{col}' expected to be always null, but has "
                     f"{non_null_count} non-null values. Dropping anyway."
                 )
@@ -124,7 +127,7 @@ def _warn_dropped_anomalies(submissions: pl.DataFrame) -> None:
             if len(unique_values) > 1 or (
                 len(unique_values) == 1 and unique_values[0] != expected_value
             ):
-                print(
+                logger.warning(
                     f"WARNING: Column '{col}' expected to be always "
                     f"'{expected_value}', but has values: {unique_values}. "
                     "Dropping anyway."
@@ -234,24 +237,28 @@ def extract_decisions_table(df: pl.DataFrame) -> pl.DataFrame:
     return decisions_df.sort("submission_id", "editor_number", "decision_number")
 
 
-def normalize(input_file: Path, output_dir: Path) -> None:
-    """Run the full article normalization pipeline."""
+def normalize(input_file: Path, output_dir: Path) -> dict[str, pl.DataFrame]:
+    """Run the full article normalization pipeline.
+
+    Returns the written tables keyed by name, so a caller gets the result in
+    memory rather than having to re-read the CSVs it just wrote.
+    """
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    print(f"Loading raw data from {input_file}")
+    logger.info(f"Loading raw data from {input_file}")
     df = pl.read_csv(input_file, encoding="utf-8-lossy")
-    print(f"Raw data shape: {df.shape[0]} rows, {df.shape[1]} columns")
+    logger.info(f"Raw data shape: {df.shape[0]} rows, {df.shape[1]} columns")
 
     # No silent dropping: surface raw headers no article table accounts for.
     claimed = _claimed_columns()
     unclaimed = [c for c in df.columns if c not in claimed]
     if unclaimed:
-        print(
+        logger.warning(
             f"WARNING: {len(unclaimed)} raw column(s) not mapped by any article "
             f"schema (ignored): {unclaimed}"
         )
 
-    print("\nExtracting normalized tables...")
+    logger.info("\nExtracting normalized tables...")
     tables = {
         "submissions": extract_submissions_table(df),
         "authors": extract_authors_table(df),
@@ -260,16 +267,18 @@ def normalize(input_file: Path, output_dir: Path) -> None:
     }
 
     for name, table_df in tables.items():
-        print(f"{name}: {table_df.shape[0]} rows, {table_df.shape[1]} columns")
+        logger.info(f"{name}: {table_df.shape[0]} rows, {table_df.shape[1]} columns")
         output_file = output_dir / f"{name}.csv"
         table_df.write_csv(output_file)
-        print(f"Saved {name} to {output_file}")
+        logger.info(f"Saved {name} to {output_file}")
 
-    print(f"\nNormalization complete! All tables saved to {output_dir}/")
+    logger.info(f"\nNormalization complete! All tables saved to {output_dir}/")
 
     submissions = tables["submissions"]
     if submissions.shape[0] > 0:
         core_cols = ["submission_id", "title", "status", "date_submitted"]
         available = [c for c in core_cols if c in submissions.columns]
-        print("\nSample from submissions table:")
-        print(submissions.select(available).head(3))
+        logger.info("\nSample from submissions table:")
+        logger.info(submissions.select(available).head(3))
+
+    return tables
