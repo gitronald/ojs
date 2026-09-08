@@ -20,9 +20,12 @@ and 3.3.
 ```
 ojs/
 ├── cli.py              # Typer CLI: init, articles, reviews, api (+ schema docs)
+├── errors.py           # OjsError hierarchy raised by the run entry points
+├── paths.py            # Output directory resolution (argument → env var → default)
 ├── schema.py           # Typed schema framework: Column/Table, apply(), doc export
 ├── utils.py            # HTML stripping + localized-field extraction
 ├── website/            # Website CSV-export pipelines
+│   ├── run.py          # run_report_fetch / run_norm entry points
 │   ├── reports.py      # Authenticated report-CSV fetch (OJS login + download)
 │   ├── articles/       # Wide CSV → submissions, authors, editors, decisions
 │   │   ├── normalize.py    # Unpivot the wide CSV into the four tables
@@ -31,6 +34,7 @@ ojs/
 │       ├── normalize.py    # Rename and type-cast review data
 │       └── schemas.py      # Reviews schema
 └── api/                # REST pipeline
+    ├── run.py          # run_fetch / run_download / run_norm entry points
     ├── client.py       # OJS REST client (httpx, pagination, retry, early-stop)
     ├── files.py        # Submission file artifact downloads (disk layout, manifest)
     ├── normalize.py    # JSON → relational tables (schema-driven)
@@ -38,6 +42,11 @@ ojs/
     ├── sync.py         # Incremental sync: high-water-mark state, raw-JSON upsert
     └── swagger.json    # OJS API reference (snapshot)
 ```
+
+The CLI is a thin shell over `api/run.py` and `website/run.py`: every command
+resolves its options, calls the matching `run_*` function, and turns an error
+into an exit code. The pipelines themselves are importable — see
+[Using ojs as a library](#using-ojs-as-a-library).
 
 ## Installation
 
@@ -278,6 +287,58 @@ decision column group.
 assignment, carrying the full date chain (assigned, notified, confirmed,
 completed, acknowledged, reminded), the response and review overdue day counts,
 the recommendation, and the reviewer's comments.
+
+## Using ojs as a library
+
+Every pipeline the CLI runs is an importable function, so the package can be
+driven in-process instead of through `subprocess`:
+
+```python
+from ojs.api.run import run_fetch, run_norm
+
+fetch = run_fetch(incremental=True, stats=False)
+print(fetch.submissions.fetched, "changed;", fetch.submissions.total, "on disk")
+
+norm = run_norm()
+print(norm.rows)  # {"submissions": 354, "publications": 361, ...}
+```
+
+The website pipelines mirror this, parameterized by report:
+
+```python
+from ojs.website.run import run_norm, run_report_fetch
+
+export = run_report_fetch("reviews")  # -> Path to the downloaded CSV
+result = run_norm("reviews", input_file=export)
+```
+
+Three conventions make these usable from another codebase:
+
+- **Arguments before environment.** Every entry point is keyword-only and
+  defaults to `None`, meaning "read the environment" — the same defaults the CLI
+  uses. Pass `base_url`, `api_key`, `out_dir`, and friends explicitly to bypass
+  `.env` entirely. `ojs.paths` exposes the same directory resolution
+  (`api_dir()`, `articles_dir()`, …) so a caller can ask where output lands
+  rather than reconstructing the defaults.
+- **Results, not printed lines.** `run_fetch` returns a `FetchResult` (per-dataset
+  `fetched`/`total` counts, whether stats succeeded, whether the run was
+  incremental, the output directory); `run_norm` returns the table names and row
+  counts; `run_download` returns the downloaded and failed records.
+- **Exceptions, not exit codes.** Library code raises `ojs.errors.OjsError` —
+  `ConfigError` (missing credentials or report settings), `OptionError`
+  (contradictory or malformed arguments), `MissingDataError` (a required input is
+  not on disk). The CLI catches these and maps them back to its usual messages
+  and exit codes.
+
+Progress goes to the `ojs` logger, which the package fits with a `NullHandler`,
+so an embedding caller sees nothing on the console by default. To get the CLI's
+output, attach a handler:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+```
 
 ## Security & privacy
 
