@@ -234,6 +234,17 @@ How it works:
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
 
+## Normalized output
+
+Every `norm` command writes one **CSV per table**, named for the table, next to a
+`table_schemas.csv` written by the matching `schema` command:
+
+| Command | Output directory |
+| --- | --- |
+| `ojs api norm` | `$OJS_API_DIR/normalized/` (default `data/ojs-api/normalized/`) |
+| `ojs articles norm` | `$OJS_ARTICLES_DIR` (default `data/ojs-website/articles/`) |
+| `ojs reviews norm` | `$OJS_REVIEWS_DIR` (default `data/ojs-website/reviews/`) |
+
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
