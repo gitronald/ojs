@@ -5,7 +5,7 @@ status: active
 branch: feature/importable-run-entry-points
 created: 2026-09-08T14:15:19-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/31
 ---
 
 # Extract importable run entry points from the CLI commands
