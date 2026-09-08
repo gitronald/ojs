@@ -245,6 +245,33 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 | `ojs articles norm` | `$OJS_ARTICLES_DIR` (default `data/ojs-website/articles/`) |
 | `ojs reviews norm` | `$OJS_REVIEWS_DIR` (default `data/ojs-website/reviews/`) |
 
+**`ojs api norm`** — eight tables from the REST API:
+
+| Table | One row per |
+| --- | --- |
+| `submissions` | Submission — status, stage, dates, type, DOI, and a first-author summary |
+| `publications` | Publication version — title, abstract, issue, pages, license, galley count |
+| `authors` | Author per submission, `author_number` in display order, joined to OJS accounts via `user_id` |
+| `review_assignments` | Reviewer assignment — round, status, response and review due dates |
+| `submission_files` | Current file artifact — stage, review round, revision count, uploader, URL |
+| `publication_stats` | Published submission — abstract, galley, PDF, HTML, and other view totals |
+| `views_timeline` | Submission/date/kind view count (long format) |
+| `views_timeline_totals` | Journal-wide date/kind view count (long format) |
+
+The last three appear only when stats were fetched, and `submission_files` only
+after `ojs api fetch --files` or `ojs api download`.
+
+**`ojs articles norm`** — four tables unpivoted from the wide Articles Report:
+`submissions` (one row per submission, including the language, rights, subjects,
+and disciplines metadata the REST API doesn't expose), plus `authors`, `editors`,
+and `decisions`, each one row per numbered `(Author N)` / `(Editor N)` /
+decision column group.
+
+**`ojs reviews norm`** — a single `reviews` table, one row per reviewer
+assignment, carrying the full date chain (assigned, notified, confirmed,
+completed, acknowledged, reminded), the response and review overdue day counts,
+the recommendation, and the reviewer's comments.
+
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
