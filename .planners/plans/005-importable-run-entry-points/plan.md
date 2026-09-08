@@ -152,3 +152,76 @@ Keep the CLI tests as-is; they now double as the compatibility check.
 - CHANGELOG `[Unreleased]`: the new modules and public functions, noting that CLI
   behavior is unchanged.
 - Version: additive public API with no breakage, so a minor bump.
+
+## Log
+
+**2026-09-08** — Implemented on `feature/importable-run-entry-points`
+(PR #31). Four commits: the refactor, direct-call tests, the PR-url plan
+update, and docs.
+
+### What landed
+
+- `ojs/errors.py` — `OjsError` with `ConfigError`, `OptionError`, and
+  `MissingDataError`. `ReportAuthError` additionally subclasses `OjsError` (still
+  a `RuntimeError`), so one `except OjsError` covers every deliberate failure.
+- `ojs/paths.py` — the five directory resolvers, each following
+  argument -> env var -> default.
+- `ojs/api/run.py` — `run_fetch`, `run_download`, `run_norm` plus `FetchResult`,
+  `DownloadResult`, `NormResult`, and a `DatasetCount(fetched, total)` value type.
+- `ojs/website/run.py` — `run_report_fetch` and `run_norm`, both parameterized by
+  a `REPORTS` table holding each report's glob, URL env var, output directory, and
+  normalizer, so neither function branches on the report name.
+- `ojs/cli.py` cut from 749 to ~380 lines; every command is options plus a call
+  plus a `try/except OjsError`.
+- The three normalize pipelines now return `dict[str, pl.DataFrame]` so `run_norm`
+  reports row counts without re-reading the CSVs it just wrote.
+
+### Decisions taken at implementation time
+
+- **`logging` over an `on_progress` callback**, as the plan's design section
+  leaned. Every `print` below `cli.py` became a `logger` call on a
+  `logging.getLogger(__name__)` per module; `ojs/__init__.py` installs the
+  `NullHandler`. The conversion covers the whole package, not only the command
+  bodies -- leaving `client.py` and the normalizers printing would defeat "quiet
+  by default" and make the library-silence test meaningless.
+- **The CLI handler resolves `sys.stdout` at emit time.**
+  `logging.StreamHandler` binds its stream at construction, which would have made
+  command output invisible to `CliRunner` (it swaps `sys.stdout` after import) and
+  broken every CLI test. A tiny write-proxy fixes it without subclassing
+  `Handler` (`typing.override` is 3.12+, and the project supports 3.11).
+- **Warning-level messages keep their literal `WARNING` prefix.** The CLI prints
+  records bare (no level name), so the prefix is what marks them in output;
+  dropping it would have changed what the commands print.
+- **`OptionError` split out from `ConfigError`,** which the plan had covering both
+  missing config and contradictory flags. Mapping both to one CLI handler would
+  have moved the flag-conflict and bad-date exits from click's 2 to 1. The split
+  keeps exit codes identical: `OptionError` -> `typer.BadParameter` (exit 2),
+  every other `OjsError` -> `Error: <msg>` (exit 1). The plan's own compatibility
+  bar outranked its example grouping here.
+- **`run.py` imports the client as a module** (`client.fetch_submissions(...)`)
+  rather than binding the functions at import, so the existing tests'
+  `monkeypatch.setattr(client_mod, ...)` still takes effect. `cli.py` imports the
+  run modules inside the command bodies, preserving the deferred-import startup
+  cost the previous code was careful about.
+
+### Compatibility check
+
+Beyond the suite, the CLI was diffed against the pre-refactor code in the main
+checkout: 18 scenarios (all three `norm`s, all three `schema`s, three `--help`
+outputs, and nine error paths spanning exits 0, 1, and 2) run against identical
+fixtures with identical env. Output and exit codes are **byte-identical**,
+including the polars sample-table renders, the warning ordering, and the
+`BadParameter` usage box.
+
+The five library tests that asserted on `capsys` moved to `caplog` -- they assert
+the library *emits* the record rather than that something happened to be printing
+it. Four of them were passing only by accident of import order (an earlier test
+importing `ojs.cli` attached the stdout handler); they are deterministic now. No
+CLI test was touched. Suite: 159 passed, coverage 91.2% (floor 86%).
+
+### Follow-up
+
+The version was left at `0.8.4a0`. The public API is additive, so the next stable
+release should be a **minor** bump (`0.9.0`) rather than the patch the current
+prerelease implies -- run from `main` through the normal release workflow, not
+from this branch.
