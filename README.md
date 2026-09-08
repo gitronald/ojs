@@ -239,3 +239,7 @@ The OJS API has no server-side "modified since" filter, so incremental cannot de
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
 - The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
 - The fetched website reports (`reviews-*.csv`, `articles-*.csv`) and their normalized tables likewise carry reviewer and author names, emails, and ORCIDs. They write under `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, under the gitignored `data/`) — apply the same umask/private-directory care as for the API dumps.
+
+## Changelog
+
+Release history is in [CHANGELOG.md](CHANGELOG.md).
