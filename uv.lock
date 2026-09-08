@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "ojs"
-version = "0.8.3"
+version = "0.8.4a0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
