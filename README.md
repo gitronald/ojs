@@ -84,6 +84,7 @@ precedence): `~/.config/ojs/.env` by default, or the file named by
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `OJS_CONFIG_PATH` | `~/.config/ojs/.env` | User-level config file, loaded as a fallback for values the current directory's `.env` and the environment don't set |
 | `OJS_BASE_URL` | (required for `api`) | OJS journal URL (e.g. `https://example.org/index.php/myjournal`) |
 | `OJS_API_KEY` | (required for `api`) | OJS API token |
 | `OJS_USERNAME` | (required for website `fetch`) | Editorial-manager login username |
