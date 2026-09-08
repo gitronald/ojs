@@ -1,4 +1,4 @@
-"""Schema classes for the normalized JOTS article tables (website CSV export).
+"""Schema classes for the normalized OJS article tables (website CSV export).
 
 These classes are the single source of truth for the article pipeline: column
 names, polars dtypes, the wide-CSV source headers (literal for submissions,
