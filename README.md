@@ -22,9 +22,14 @@ ojs/
 ├── cli.py              # Typer CLI: init, articles, reviews, api (+ schema docs)
 ├── schema.py           # Typed schema framework: Column/Table, apply(), doc export
 ├── utils.py            # HTML stripping + localized-field extraction
-├── website/            # Manual website CSV-export pipelines
+├── website/            # Website CSV-export pipelines
+│   ├── reports.py      # Authenticated report-CSV fetch (OJS login + download)
 │   ├── articles/       # Wide CSV → submissions, authors, editors, decisions
+│   │   ├── normalize.py    # Unpivot the wide CSV into the four tables
+│   │   └── schemas.py      # Submissions/Authors/Editors/Decisions schemas
 │   └── reviews/        # Long CSV → reviews
+│       ├── normalize.py    # Rename and type-cast review data
+│       └── schemas.py      # Reviews schema
 └── api/                # REST pipeline
     ├── client.py       # OJS REST client (httpx, pagination, retry, early-stop)
     ├── files.py        # Submission file artifact downloads (disk layout, manifest)
