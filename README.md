@@ -234,6 +234,13 @@ How it works:
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
 
+**Upgrade note.** The view-stats timelines gained an `interval` column (`day` vs
+`month`) that is part of the incremental merge key. Timelines written before that
+change lack it, so the first `--incremental` run after upgrading would leave the
+legacy points sitting alongside the re-fetched ones, since their keys differ. Run
+a one-time `ojs api fetch --full` after upgrading to rewrite
+`views_timeline.json` and `views_timeline_totals.json` cleanly.
+
 ## Normalized output
 
 Every `norm` command writes one **CSV per table**, named for the table, next to a
