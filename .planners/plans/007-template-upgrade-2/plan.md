@@ -1,11 +1,11 @@
 ---
 id: 7
 slug: template-upgrade-2
-status: active
+status: done
 branch: feature/template-upgrade-2
 created: 2026-09-09T11:24:14-07:00
-concluded:
-pr:
+concluded: 2026-09-09T13:04:38-07:00
+pr: https://github.com/gitronald/ojs/pull/35
 ---
 
 # Sync tooling with the current proj-template standard
@@ -79,3 +79,22 @@ hook id.
   `ruff format --check`, `pyrefly check` (0 errors),
   `pre-commit run --all-files`, and `pytest` (182 passed, 91.98% coverage
   against the pinned 86 floor).
+- 2026-09-09: PR #35 merged into `dev` as `cdaba8d` with all four CI cells
+  (3.11-3.14) green; worktree removed.
+
+## Retrospective
+
+Re-reading `template/` before each row, rather than trusting the read taken at
+the start, was what made this pass correct: the template shipped 0.8.2 -> 0.8.5
+while the branch was open, so the first sync of `dependabot.yml` landed comment
+text the template had already replaced, and the `setup-uv` v10 bump and the
+`--python` restatement on `uv sync` would have been missed entirely. Cheap to
+re-check, expensive to discover after a merge — worth doing on any upgrade that
+spans more than one sitting.
+
+The sync matrix also found less than it looked like it would. Most rows were
+already identical, and the real value was in the two places the repo was
+*ahead* of the template (the `ruff-check` hook id) or deliberately different —
+which is exactly the class the skill says to ask about rather than overwrite.
+Diffing every managed file, including the ones expected to match, is what
+surfaced that; a presence check would have called the whole matrix done.
