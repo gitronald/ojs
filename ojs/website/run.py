@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Protocol
 
 import polars as pl
 
@@ -25,12 +26,29 @@ from ojs.errors import ConfigError, MissingDataError, OptionError
 __all__ = [
     "REPORTS",
     "NormResult",
+    "OutDirResolver",
     "ReportSpec",
     "run_norm",
     "run_report_fetch",
 ]
 
 logger = logging.getLogger(__name__)
+
+
+class OutDirResolver(Protocol):
+    """The shape of the :mod:`ojs.paths` helpers that derive from ``downloads``.
+
+    A ``Callable`` alias cannot express the keyword-only parent argument, and that
+    argument is the whole point here: it is how a caller's downloads override
+    reaches the directory derived from it.
+    """
+
+    def __call__(
+        self,
+        override: Path | str | None = None,
+        *,
+        downloads: Path | str | None = None,
+    ) -> Path: ...
 
 
 @dataclass(frozen=True)
@@ -42,7 +60,7 @@ class ReportSpec:
     glob: str
     # Env var holding the instance-specific report URL (it varies by install).
     url_env: str
-    out_dir: Callable[[Path | str | None], Path]
+    out_dir: OutDirResolver
     normalize: Callable[[Path, Path], dict[str, pl.DataFrame]]
 
 
@@ -177,6 +195,10 @@ def run_norm(
     the downloads directory -- the date-stamped filenames sort lexicographically,
     so the reverse sort is newest-first.
 
+    With no ``out_dir``, the tables are written under ``downloads_dir`` when that
+    was passed, so overriding the downloads directory redirects both ends of the
+    pipeline; otherwise the report's own env var (or the default) decides.
+
     Raises:
         OptionError: ``report`` is not a known report.
         MissingDataError: no export matches the glob (or ``input_file`` is gone).
@@ -196,7 +218,10 @@ def run_norm(
             )
         source = matches[0]
 
-    output_dir = spec.out_dir(out_dir)
+    # Pass the raw `downloads_dir` argument, not the resolved `downloads` path:
+    # when the caller gave none, the helper must still fall through to the
+    # report's own env var rather than to a path derived from the default.
+    output_dir = spec.out_dir(out_dir, downloads=downloads_dir)
     tables = spec.normalize(source, output_dir)
     return NormResult(
         input_file=source,
