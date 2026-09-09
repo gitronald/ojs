@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 006 | [Chain derived output-directory overrides through the run entry points](plans/006-chain-derived-output-dir-overrides/plan.md) | draft | — | — |
+| 006 | [Chain derived output-directory overrides through the run entry points](plans/006-chain-derived-output-dir-overrides/plan.md) | active | — | — |
 | 003 | [Fix articles normalize silently dropping editor and decision columns](plans/003-articles-normalize-column-ranges/plan.md) | draft | — | — |
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |

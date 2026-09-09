@@ -1,8 +1,8 @@
 ---
 id: 6
 slug: chain-derived-output-dir-overrides
-status: draft
-branch:
+status: active
+branch: feature/chain-derived-output-dir-overrides
 created: 2026-09-08T21:38:23-07:00
 concluded:
 pr:
