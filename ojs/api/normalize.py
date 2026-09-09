@@ -1,5 +1,6 @@
 """Normalize OJS API JSON data into relational tables."""
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,8 @@ import polars as pl
 
 from ojs.api import schemas
 from ojs.utils import localized, strip_html
+
+logger = logging.getLogger(__name__)
 
 # sectionId -> section title mapping (derived from CSV cross-reference)
 SECTION_MAP = {
@@ -119,7 +122,7 @@ def _build_email_to_user_id(users: list[dict[str, Any]]) -> dict[str, int]:
         if len(ids) == 1:
             mapping[email] = next(iter(ids))
         else:
-            print(
+            logger.warning(
                 f"  Warning: email {email!r} maps to multiple user ids "
                 f"{sorted(ids)}; leaving authors with this email unmatched"
             )
@@ -166,7 +169,7 @@ def normalize_authors(
     df = df.sort("submission_id", "author_number")
 
     matched = df["user_id"].drop_nulls().len()
-    print(f"  Matched {matched}/{df.height} authors to user accounts by email")
+    logger.info(f"  Matched {matched}/{df.height} authors to user accounts by email")
 
     return df
 
@@ -420,23 +423,27 @@ def normalize_api(
     views_timeline: list[dict[str, Any]] | None = None,
     views_timeline_totals: list[dict[str, Any]] | None = None,
     submission_files: list[dict[str, Any]] | None = None,
-) -> None:
-    """Run the full API normalization pipeline."""
+) -> dict[str, pl.DataFrame]:
+    """Run the full API normalization pipeline.
+
+    Returns the written tables keyed by name, so a caller gets the result in
+    memory rather than having to re-read the CSVs it just wrote.
+    """
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    print("Normalizing API data...")
+    logger.info("Normalizing API data...")
 
     subs_df = normalize_submissions(submissions, publications)
-    print(f"Submissions: {subs_df.shape[0]} rows, {subs_df.shape[1]} columns")
+    logger.info(f"Submissions: {subs_df.shape[0]} rows, {subs_df.shape[1]} columns")
 
     pubs_df = normalize_publications(subs_df, publications)
-    print(f"Publications: {pubs_df.shape[0]} rows, {pubs_df.shape[1]} columns")
+    logger.info(f"Publications: {pubs_df.shape[0]} rows, {pubs_df.shape[1]} columns")
 
     authors_df = normalize_authors(publications, users)
-    print(f"Authors: {authors_df.shape[0]} rows, {authors_df.shape[1]} columns")
+    logger.info(f"Authors: {authors_df.shape[0]} rows, {authors_df.shape[1]} columns")
 
     reviews_df = normalize_review_assignments(submissions_ext)
-    print(
+    logger.info(
         f"Review assignments: {reviews_df.shape[0]} rows, {reviews_df.shape[1]} columns"
     )
 
@@ -450,12 +457,12 @@ def normalize_api(
     if submission_files is not None:
         files_df = normalize_submission_files(submission_files)
         rows, cols = files_df.shape
-        print(f"Submission files: {rows} rows, {cols} columns")
+        logger.info(f"Submission files: {rows} rows, {cols} columns")
         tables["submission_files"] = files_df
 
     if publication_stats is not None:
         stats_df = normalize_publication_stats(publication_stats)
-        print(
+        logger.info(
             f"Publication stats: {stats_df.shape[0]} rows, {stats_df.shape[1]} columns"
         )
         tables["publication_stats"] = stats_df
@@ -463,25 +470,27 @@ def normalize_api(
     if views_timeline is not None:
         timeline_df = normalize_views_timeline(views_timeline)
         rows, cols = timeline_df.shape
-        print(f"Views timeline: {rows} rows, {cols} columns")
+        logger.info(f"Views timeline: {rows} rows, {cols} columns")
         tables["views_timeline"] = timeline_df
 
     if views_timeline_totals is not None:
         totals_df = normalize_views_timeline_totals(views_timeline_totals)
         rows, cols = totals_df.shape
-        print(f"Views timeline totals: {rows} rows, {cols} columns")
+        logger.info(f"Views timeline totals: {rows} rows, {cols} columns")
         tables["views_timeline_totals"] = totals_df
 
     for name, df in tables.items():
         output_file = output_dir / f"{name}.csv"
         df.write_csv(output_file)
-        print(f"Saved {name} to {output_file}")
+        logger.info(f"Saved {name} to {output_file}")
 
-    print(f"\nNormalization complete! All tables saved to {output_dir}/")
+    logger.info(f"\nNormalization complete! All tables saved to {output_dir}/")
 
     # Show sample
     if subs_df.shape[0] > 0:
         core_cols = ["submission_id", "title", "status", "date_submitted"]
         available = [c for c in core_cols if c in subs_df.columns]
-        print("\nSample from submissions:")
-        print(subs_df.select(available).head(3))
+        logger.info("\nSample from submissions:")
+        logger.info(subs_df.select(available).head(3))
+
+    return tables

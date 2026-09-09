@@ -1,32 +1,23 @@
-"""OJS CLI - normalize Open Journal Systems data exports."""
+"""OJS CLI - normalize Open Journal Systems data exports.
 
-import json
+A thin shell over the importable entry points in :mod:`ojs.api.run` and
+:mod:`ojs.website.run`: each command declares its options, calls the matching
+``run_*`` function, and translates an :class:`~ojs.errors.OjsError` into the exit
+code and message the command has always produced. The pipelines themselves live
+in the library, so they can be driven in-process without this module.
+"""
+
+import logging
 import os
-from datetime import date, datetime
+import sys
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 import typer
 from dotenv import load_dotenv
 
-from ojs.api.sync import (
-    SYNC_STATE_FILENAME,
-    KeyFn,
-    build_submission_modified,
-    load_sync_state,
-    merge_write_json,
-    save_sync_state,
-    stats_window_start,
-    submission_watermark,
-    upsert_json_list,
-    write_json,
-)
-from ojs.schema import write_schema_docs
-from ojs.website.articles.normalize import normalize
-from ojs.website.articles.schemas import ARTICLE_TABLES
-from ojs.website.reviews.normalize import normalize_reviews
-from ojs.website.reviews.schemas import REVIEW_TABLES
+from ojs import paths
+from ojs.errors import OjsError, OptionError
 
 # interpolate=False so a value containing `${VAR}` is read back verbatim instead
 # of being expanded against the environment -- this tool's config (URLs, keys,
@@ -38,6 +29,45 @@ load_dotenv(interpolate=False)
 # override=False so the CWD `.env` and the environment keep precedence.
 config_path = os.environ.get("OJS_CONFIG_PATH") or "~/.config/ojs/.env"
 load_dotenv(Path(config_path).expanduser(), override=False, interpolate=False)
+
+
+class _StdoutProxy:
+    """A write target that resolves ``sys.stdout`` on every call.
+
+    ``logging.StreamHandler`` binds its stream once, at construction. Writing
+    through this proxy instead keeps command output visible to anything that
+    swaps the stream after this module is imported: Typer's ``CliRunner``,
+    ``contextlib.redirect_stdout``, a capturing test harness.
+    """
+
+    def write(self, text: str) -> int:
+        return sys.stdout.write(text)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+_logging_configured = False
+
+
+def configure_logging() -> None:
+    """Route the library's progress logs to stdout, unadorned.
+
+    Command output is the library's log records printed verbatim (no level name,
+    no timestamp), which is why messages that need to read as warnings carry
+    their own ``WARNING`` prefix. Called at import so the console script prints;
+    a library caller never runs it and stays quiet.
+    """
+    global _logging_configured
+    if _logging_configured:
+        return
+    logger = logging.getLogger("ojs")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(logging.StreamHandler(_StdoutProxy()))
+    _logging_configured = True
+
+
+configure_logging()
 
 app = typer.Typer(help="Normalize Open Journal Systems data exports.")
 articles_app = typer.Typer(help="Articles data pipeline.")
@@ -63,31 +93,17 @@ class FileType(StrEnum):
     review = "review"
 
 
-# Filename globs for the latest website CSV exports. Fixed naming conventions
-# from the OJS dashboard (`articles-*.csv` / `reviews-*.csv`) -- internal to the
-# package, not worth exposing as configurable env vars.
-ARTICLES_GLOB = "articles-*.csv"
-REVIEWS_GLOB = "reviews-*.csv"
+def _fail(error: OjsError) -> typer.Exit | typer.BadParameter:
+    """Turn a library error into the CLI failure it has always been reported as.
 
-
-def _downloads_dir() -> Path:
-    return Path(os.environ.get("OJS_DOWNLOADS_DIR", "data/ojs-website"))
-
-
-def _articles_dir() -> Path:
-    return Path(os.environ.get("OJS_ARTICLES_DIR", _downloads_dir() / "articles"))
-
-
-def _reviews_dir() -> Path:
-    return Path(os.environ.get("OJS_REVIEWS_DIR", _downloads_dir() / "reviews"))
-
-
-def _api_dir() -> Path:
-    return Path(os.environ.get("OJS_API_DIR", "data/ojs-api"))
-
-
-def _files_dir() -> Path:
-    return Path(os.environ.get("OJS_FILES_DIR", _api_dir() / "files"))
+    An :class:`~ojs.errors.OptionError` is a usage problem, so it becomes click's
+    ``BadParameter`` (usage message, exit 2); everything else prints
+    ``Error: <message>`` and exits 1.
+    """
+    if isinstance(error, OptionError):
+        return typer.BadParameter(str(error))
+    print(f"Error: {error}")
+    return typer.Exit(1)
 
 
 def _env_quote(value: str) -> str:
@@ -153,61 +169,13 @@ def init(
     print(f"Wrote {env_path}")
 
 
-def _report_fetch(report_env: str, name: str) -> None:
-    """Download a website report CSV via authenticated login.
-
-    Shared by `reviews fetch` and `articles fetch`: validates the website config,
-    logs in with the editorial-manager credentials, downloads the report URL named
-    by `report_env`, and writes it as `{name}-<YYYYMMDD>.csv` into OJS_DOWNLOADS_DIR
-    -- the directory `{name} norm` already globs -- so the fetch -> norm handoff
-    works unchanged.
-    """
-    from ojs.website.reports import (
-        ReportAuthError,
-        download_report,
-        resolve_report_url,
-    )
-
-    base_url = os.environ.get("OJS_BASE_URL")
-    username = os.environ.get("OJS_USERNAME")
-    password = os.environ.get("OJS_PASSWORD")
-    report_url = os.environ.get(report_env)
-    if not base_url or not username or not password or not report_url:
-        missing = [
-            var
-            for var, value in (
-                ("OJS_BASE_URL", base_url),
-                ("OJS_USERNAME", username),
-                ("OJS_PASSWORD", password),
-                (report_env, report_url),
-            )
-            if not value
-        ]
-        print(f"Error: {', '.join(missing)} must be set to fetch the {name} report.")
-        raise typer.Exit(1)
-
-    dest = _downloads_dir() / f"{name}-{date.today():%Y%m%d}.csv"
-    resolved = resolve_report_url(base_url, report_url)
-    print(f"Logging in to OJS as {username} and downloading the {name} report...")
-    try:
-        download_report(
-            base_url=base_url,
-            username=username,
-            password=password,
-            report_url=resolved,
-            dest=dest,
-        )
-    except ReportAuthError as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1) from e
-
-    print(f"Saved {name} report to {dest}")
-
-
 @articles_app.command("schema")
 def articles_schema() -> None:
     """Generate schema documentation for article tables."""
-    out_dir = _articles_dir()
+    from ojs.schema import write_schema_docs
+    from ojs.website.articles.schemas import ARTICLE_TABLES
+
+    out_dir = paths.articles_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Creating schema documentation for article tables...")
     write_schema_docs(ARTICLE_TABLES, out_dir / "table_schemas.csv")
@@ -216,28 +184,32 @@ def articles_schema() -> None:
 @articles_app.command("norm")
 def articles_norm() -> None:
     """Normalize the most recent articles CSV export into relational tables."""
-    downloads = _downloads_dir()
-    out_dir = _articles_dir()
-    pattern = ARTICLES_GLOB
+    from ojs.website import run
 
-    matches = sorted(downloads.glob(pattern), reverse=True)
-    if not matches:
-        print(f"Error: No files matching {pattern} found in {downloads}")
-        raise typer.Exit(1)
-
-    normalize(input_file=matches[0], output_dir=out_dir)
+    try:
+        run.run_norm("articles")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @articles_app.command("fetch")
 def articles_fetch() -> None:
     """Download the latest Articles Report CSV from the OJS website."""
-    _report_fetch("OJS_ARTICLES_REPORT_URL", "articles")
+    from ojs.website import run
+
+    try:
+        run.run_report_fetch("articles")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @reviews_app.command("schema")
 def reviews_schema() -> None:
     """Generate schema documentation for review tables."""
-    out_dir = _reviews_dir()
+    from ojs.schema import write_schema_docs
+    from ojs.website.reviews.schemas import REVIEW_TABLES
+
+    out_dir = paths.reviews_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Creating schema documentation for review tables...")
     write_schema_docs(REVIEW_TABLES, out_dir / "table_schemas.csv")
@@ -246,22 +218,23 @@ def reviews_schema() -> None:
 @reviews_app.command("norm")
 def reviews_norm() -> None:
     """Normalize the most recent reviews CSV export."""
-    downloads = _downloads_dir()
-    out_dir = _reviews_dir()
-    pattern = REVIEWS_GLOB
+    from ojs.website import run
 
-    matches = sorted(downloads.glob(pattern), reverse=True)
-    if not matches:
-        print(f"Error: No files matching {pattern} found in {downloads}")
-        raise typer.Exit(1)
-
-    normalize_reviews(input_file=matches[0], output_dir=out_dir)
+    try:
+        run.run_norm("reviews")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @reviews_app.command("fetch")
 def reviews_fetch() -> None:
     """Download the latest Review Report CSV from the OJS website."""
-    _report_fetch("OJS_REVIEWS_REPORT_URL", "reviews")
+    from ojs.website import run
+
+    try:
+        run.run_report_fetch("reviews")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @api_app.command("fetch")
@@ -312,234 +285,21 @@ def api_fetch(
     one-time `ojs api fetch --full` after upgrading to rewrite
     `views_timeline.json` / `views_timeline_totals.json` cleanly.
     """
-    import httpx
+    from ojs.api import run
 
-    from ojs.api.client import (
-        SKIP_STATUSES,
-        fetch_all_publications,
-        fetch_all_submission_files,
-        fetch_publication_stats,
-        fetch_submissions,
-        fetch_submissions_extended,
-        fetch_users,
-        fetch_view_timeline_totals,
-        fetch_view_timelines,
-    )
-
-    base_url = os.environ.get("OJS_BASE_URL")
-    api_key = os.environ.get("OJS_API_KEY")
-    if not base_url or not api_key:
-        print("Error: OJS_BASE_URL and OJS_API_KEY must be set (run `ojs init`).")
-        raise typer.Exit(1)
-
-    if full and (incremental or since):
-        raise typer.BadParameter("--full cannot be combined with --incremental/--since")
-    incremental = incremental or since is not None
-
-    # Validate date filters up front so a typo fails fast, before any fetch.
-    for flag, value in (
-        ("--since", since),
-        ("--stats-since", stats_since),
-        ("--stats-until", stats_until),
-    ):
-        if value is not None:
-            try:
-                date.fromisoformat(value)
-            except ValueError as e:
-                raise typer.BadParameter(f"{flag} must be YYYY-MM-DD") from e
-
-    out_dir = _api_dir()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    state_path = out_dir / SYNC_STATE_FILENAME
-
-    # Resolve the incremental watermark: `--since` overrides the stored mark;
-    # otherwise derive it from the previous sync. No usable mark -> full pull.
-    state: dict[str, Any] = (
-        load_sync_state(state_path) if incremental else {"submission_modified": {}}
-    )
-    sub_since = (
-        since
-        if since is not None
-        else (submission_watermark(state) if incremental else None)
-    )
-    do_incremental = incremental and sub_since is not None
-    if incremental and not do_incremental:
-        print("No prior sync watermark; doing a full pull to establish a baseline.")
-
-    def _save(
-        path: Path,
-        items: list[dict[str, Any]],
-        key: str | KeyFn,
-        *,
-        incr_label: str,
-        full_label: str,
-    ) -> list[dict[str, Any]]:
-        """Merge (incremental) or overwrite (full) `items` at `path`, and report."""
-        if do_incremental:
-            merged = merge_write_json(path, items, key)
-            print(f"Merged {len(items)} {incr_label} ({len(merged)} total)")
-            return merged
-        write_json(path, items)
-        print(f"Saved {len(items)} {full_label}")
-        return items
-
-    submissions = fetch_submissions(
-        base_url, api_key, since=sub_since if do_incremental else None
-    )
-    merged_subs = _save(
-        out_dir / "submissions.json",
-        submissions,
-        "id",
-        incr_label="changed submissions",
-        full_label="submissions",
-    )
-
-    submissions_ext = fetch_submissions_extended(
-        base_url, api_key, since=sub_since if do_incremental else None
-    )
-    _save(
-        out_dir / "_submissions.json",
-        submissions_ext,
-        "id",
-        incr_label="changed extended subs",
-        full_label="extended submissions",
-    )
-
-    # In incremental mode, skip the detail GET for submissions whose
-    # dateLastActivity is unchanged since the watermark stored last run.
-    known = (
-        {int(k): v for k, v in state.get("submission_modified", {}).items()}
-        if do_incremental
-        else None
-    )
-    publications = fetch_all_publications(base_url, api_key, submissions, known=known)
-    _save(
-        out_dir / "publications.json",
-        publications,
-        "_submission_id",
-        incr_label="changed publications",
-        full_label="publications",
-    )
-
-    if files:
-        # Reuse the same skip-unchanged map as publications: a submission whose
-        # dateLastActivity is unchanged keeps its already-stored file records.
-        submission_files = fetch_all_submission_files(
-            base_url, api_key, submissions, known=known
+    try:
+        run.run_fetch(
+            stats=stats,
+            files=files,
+            stats_interval=stats_interval.value,
+            stats_since=stats_since,
+            stats_until=stats_until,
+            incremental=incremental,
+            since=since,
+            full=full,
         )
-        _save(
-            out_dir / "submission_files.json",
-            submission_files,
-            "id",
-            incr_label="changed file records",
-            full_label="submission file records",
-        )
-
-    # Users have no recency sort in the API, so they are always pulled in full.
-    users = fetch_users(base_url, api_key)
-    write_json(out_dir / "users.json", users)
-    print(f"Saved {len(users)} users")
-
-    # Tracks whether the stats block fully succeeded, so the rolling stats window
-    # only advances when stats were actually written (see watermark block below).
-    stats_ok = False
-    if stats:
-        # publication_stats are cumulative totals, so they are always pulled in
-        # full and overwritten -- windowing them would corrupt the totals. The
-        # rolling window applies only to the per-day views_timeline, which merges
-        # safely by (submission_id, date, kind) and so refreshes recent buckets
-        # without dropping history.
-        timeline_since = (
-            stats_since
-            if stats_since is not None
-            else (stats_window_start(state) if do_incremental else None)
-        )
-        try:
-            # No date window: /stats/publications returns cumulative totals, so
-            # windowing would truncate them (see the comment above). Only the
-            # per-period timelines below take the rolling window.
-            pub_stats = fetch_publication_stats(base_url, api_key)
-            # Only published submissions appear in the stats response; reuse
-            # their ids so per-submission timeline calls skip unpublished work.
-            stat_submission_ids = [
-                sid
-                for record in pub_stats
-                if (sid := (record.get("publication") or {}).get("id")) is not None
-            ]
-            timeline = fetch_view_timelines(
-                base_url,
-                api_key,
-                stat_submission_ids,
-                interval=stats_interval.value,
-                date_start=timeline_since,
-                date_end=stats_until,
-            )
-            # Journal-wide aggregate (the statistics-page graph). Abstract and
-            # galley come from distinct endpoints, so these series differ even
-            # when the per-submission endpoints collapse to identical values.
-            timeline_totals = fetch_view_timeline_totals(
-                base_url,
-                api_key,
-                interval=stats_interval.value,
-                date_start=timeline_since,
-                date_end=stats_until,
-            )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code in SKIP_STATUSES:
-                print(
-                    f"  Skipping stats: {e.response.status_code} "
-                    f"{e.response.reason_phrase} (API key may lack stats access)"
-                )
-            else:
-                raise
-        else:
-            # publication_stats are cumulative totals -- always overwritten in full.
-            write_json(out_dir / "publication_stats.json", pub_stats)
-            print(f"Saved {len(pub_stats)} publication stat records")
-            # Keys use .get() (a missing field yields a None component, not a
-            # KeyError that would strand the watermark) and include `interval`, so
-            # switching --stats-interval partitions day vs month series into
-            # disjoint keyspaces instead of merging them into a double-counted pile.
-            _save(
-                out_dir / "views_timeline.json",
-                timeline,
-                lambda p: (
-                    p.get("_submission_id"),
-                    p.get("interval"),
-                    p.get("date"),
-                    p.get("kind"),
-                ),
-                incr_label="view-timeline points",
-                full_label="view-timeline points",
-            )
-            _save(
-                out_dir / "views_timeline_totals.json",
-                timeline_totals,
-                lambda p: (p.get("interval"), p.get("date"), p.get("kind")),
-                incr_label="timeline-total points",
-                full_label="timeline-total points",
-            )
-            stats_ok = True
-
-    # Advance sync state only after every fetch above succeeded, so a failed run
-    # never moves the watermark. `--full` rewrites (resets) it from scratch.
-    if incremental or full:
-        now = datetime.now().astimezone().isoformat()
-        # Advance the stats window anchor only when stats were actually written;
-        # otherwise carry the prior mark forward so a skipped/failed/disabled
-        # stats run does not lose the days it never pulled.
-        new_state = {
-            "last_sync": now,
-            "stats_last_sync": (
-                now if (stats and stats_ok) else state.get("stats_last_sync")
-            ),
-            "submission_modified": build_submission_modified(merged_subs),
-        }
-        save_sync_state(state_path, new_state)
-        tracked = len(new_state["submission_modified"])
-        print(f"Updated sync state ({tracked} submissions tracked)")
-
-    print(f"\nAll API data saved to {out_dir}/")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @api_app.command("download")
@@ -580,170 +340,38 @@ def api_download(
     skip artifacts already on disk -- new uploads and revisions are picked up
     incrementally.
     """
-    from ojs.api.client import fetch_all_submission_files
-    from ojs.api.files import STAGE_GROUPS, download_files, manifest_key
+    from ojs.api import run
 
-    base_url = os.environ.get("OJS_BASE_URL")
-    api_key = os.environ.get("OJS_API_KEY")
-    if not base_url or not api_key:
-        print("Error: OJS_BASE_URL and OJS_API_KEY must be set (run `ojs init`).")
-        raise typer.Exit(1)
-
-    api_dir = _api_dir()
-    files_json = api_dir / "submission_files.json"
-    stages = file_stage if file_stage else STAGE_GROUPS[file_type.value]
-
-    # Resolve the target submissions. Explicit ids are fetched as given; with no
-    # ids we operate over every submission recorded by `api fetch`.
-    if submission_id:
-        target_ids = set(submission_id)
-        target_subs: list[dict[str, Any]] = [
-            {"id": sid, "dateLastActivity": None} for sid in submission_id
-        ]
-    else:
-        subs_path = api_dir / "submissions.json"
-        if not subs_path.exists():
-            print(f"Error: {subs_path} not found. Run 'ojs api fetch' first.")
-            raise typer.Exit(1)
-        target_subs = json.loads(subs_path.read_text())
-        target_ids = {s["id"] for s in target_subs}
-
-    # Choose the candidate file records. With --fetch we pull current metadata
-    # for the target submissions (already scoped to them, and to `stages`
-    # server-side) and merge it to disk; otherwise we reuse the stored dump,
-    # narrowed to the target submissions.
-    if fetch:
-        candidates = fetch_all_submission_files(
-            base_url, api_key, target_subs, file_stages=stages
+    try:
+        run.run_download(
+            submission_ids=submission_id,
+            file_type=file_type.value,
+            file_stages=file_stage,
+            revisions=revisions,
+            fetch=fetch,
         )
-        merge_write_json(files_json, candidates, "id")
-    else:
-        if not files_json.exists():
-            print(f"Error: {files_json} not found. Run with --fetch first.")
-            raise typer.Exit(1)
-        stored = json.loads(files_json.read_text())
-        # Distinguish "no files for this id" from "this id was never fetched":
-        # an explicit -s id absent from the stored dump has no metadata to use.
-        if submission_id:
-            known_ids = {f.get("_submission_id") for f in stored}
-            missing = target_ids - known_ids
-            if missing == target_ids:
-                print(
-                    f"Error: no stored file metadata for submission id(s) "
-                    f"{sorted(target_ids)} in {files_json}. "
-                    "Run with --fetch to retrieve it first."
-                )
-                raise typer.Exit(1)
-            if missing:
-                print(
-                    f"Warning: no stored file metadata for submission id(s) "
-                    f"{sorted(missing)}; run with --fetch to include them. "
-                    "Processing the rest."
-                )
-        candidates = [f for f in stored if f.get("_submission_id") in target_ids]
-
-    # Apply the stage filter -- a no-op on the fetch path (the server already
-    # filtered), but needed when reusing the stored dump.
-    stage_set = set(stages) if stages else None
-    to_download = [
-        f for f in candidates if stage_set is None or f.get("fileStage") in stage_set
-    ]
-    print(f"{len(to_download)} file records selected for download")
-
-    files_dir = _files_dir()
-    files_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = files_dir / "manifest.json"
-    manifest: list[dict[str, Any]] = (
-        json.loads(manifest_path.read_text()) if manifest_path.exists() else []
-    )
-    downloaded = {manifest_key(r): r for r in manifest}
-
-    def _persist(record: dict[str, Any]) -> None:
-        # Flush each record as soon as its bytes hit disk. Merging against the
-        # in-memory manifest (the same snapshot that built the skip map above)
-        # keeps the write consistent with the skip decisions; an atomic write
-        # means an interrupted run leaves a complete manifest of what landed.
-        # This re-serializes the whole manifest per file (the durability cost of
-        # per-file flushing), which is dwarfed by the network transfer of the file
-        # itself; if batches ever grow large enough for that to matter, flush every
-        # K records instead of every one.
-        nonlocal manifest
-        manifest = upsert_json_list(manifest, [record], manifest_key)
-        write_json(manifest_path, manifest)
-
-    new_records, failed_records = download_files(
-        to_download,
-        api_key=api_key,
-        dest_dir=files_dir,
-        downloaded=downloaded,
-        include_revisions=revisions,
-        on_record=_persist,
-    )
-
-    # Persist the files the API would not serve (403/404), keyed by fileId like
-    # the manifest, so the skip history survives the run instead of scrolling by.
-    if failed_records:
-        skipped_path = files_dir / "skipped.json"
-        prior_skips = (
-            json.loads(skipped_path.read_text()) if skipped_path.exists() else []
-        )
-        merged_skips = upsert_json_list(prior_skips, failed_records, manifest_key)
-        write_json(skipped_path, merged_skips)
-        print(f"Logged {len(failed_records)} skipped files to {skipped_path}")
-
-    print(f"\nDownloaded {len(new_records)} new files to {files_dir}/")
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @api_app.command("norm")
 def api_norm() -> None:
     """Normalize API JSON data into relational tables."""
-    from ojs.api.normalize import normalize_api
+    from ojs.api import run
 
-    api_dir = _api_dir()
-    files = {
-        "submissions": api_dir / "submissions.json",
-        "publications": api_dir / "publications.json",
-        "_submissions": api_dir / "_submissions.json",
-        "users": api_dir / "users.json",
-    }
-
-    for path in files.values():
-        if not path.exists():
-            print(f"Error: {path} not found. Run 'ojs api fetch' first.")
-            raise typer.Exit(1)
-
-    submissions = json.loads(files["submissions"].read_text())
-    publications = json.loads(files["publications"].read_text())
-    submissions_ext = json.loads(files["_submissions"].read_text())
-    users = json.loads(files["users"].read_text())
-
-    def _load_optional(path: Path) -> list[dict[str, Any]] | None:
-        return json.loads(path.read_text()) if path.exists() else None
-
-    publication_stats = _load_optional(api_dir / "publication_stats.json")
-    views_timeline = _load_optional(api_dir / "views_timeline.json")
-    views_timeline_totals = _load_optional(api_dir / "views_timeline_totals.json")
-    submission_files = _load_optional(api_dir / "submission_files.json")
-
-    normalize_api(
-        submissions,
-        publications,
-        submissions_ext,
-        users,
-        api_dir / "normalized",
-        publication_stats=publication_stats,
-        views_timeline=views_timeline,
-        views_timeline_totals=views_timeline_totals,
-        submission_files=submission_files,
-    )
+    try:
+        run.run_norm()
+    except OjsError as e:
+        raise _fail(e) from e
 
 
 @api_app.command("schema")
 def api_schema() -> None:
     """Generate schema documentation for the normalized API tables."""
     from ojs.api.schemas import API_TABLES
+    from ojs.schema import write_schema_docs
 
-    out_dir = _api_dir() / "normalized"
+    out_dir = paths.api_dir() / "normalized"
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Creating schema documentation for API tables...")
     write_schema_docs(API_TABLES, out_dir / "table_schemas.csv")

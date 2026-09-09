@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add importable run entry points so the pipelines can be driven in-process instead of only through the console script: `ojs.api.run` (`run_fetch`, `run_download`, `run_norm`) and `ojs.website.run` (`run_report_fetch`, `run_norm`). Apart from the website entry points' leading `report` argument, every argument is keyword-only, with locations and credentials falling back to the environment; each returns a result object (`FetchResult`, `DownloadResult`, `NormResult`) carrying the counts the commands print.
+- Add `ojs.paths` (`downloads_dir`, `articles_dir`, `reviews_dir`, `api_dir`, `files_dir`) so a caller can ask where the package writes instead of reconstructing the defaults, and `ojs.errors` (`OjsError`, `ConfigError`, `OptionError`, `MissingDataError`), which library code raises in place of `typer.Exit`. `ReportAuthError` now also subclasses `OjsError`.
+- Library progress and warnings now go to the `ojs` logger (fitted with a `NullHandler`) rather than `print`, so an embedding caller's console is quiet by default; the CLI attaches a stdout handler at import. The normalize pipelines return the tables they wrote.
+- CLI behavior is unchanged: every command keeps its name, options, defaults, printed output, and exit codes.
 - Documentation: generalize the website schema module docstrings, document `OJS_CONFIG_PATH` in the README env var table, sync the README project-structure tree with the package (adding `website/reports.py` and the per-pipeline `normalize`/`schemas` modules), and link the changelog from the README.
 - Documentation: add a README "Normalized output" section covering the CSV output format, the per-command output directories, and a reference for all thirteen normalized tables; surface the view-stats `interval` upgrade note (run a one-time `ojs api fetch --full` after upgrading) from the `api fetch` help text into the README.
 

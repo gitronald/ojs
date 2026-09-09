@@ -1,10 +1,13 @@
 """OJS REST API client with pagination and publication detail fetching."""
 
+import logging
 import re
 import time
 from typing import Any, Protocol
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 100
 MAX_RETRIES = 3
@@ -94,7 +97,7 @@ def _request_with_retry(
                 raise
             delay = RETRY_DELAY * (attempt + 1)
             cls = e.__class__.__name__
-            print(
+            logger.info(
                 f"    Retry {attempt + 1}/{MAX_RETRIES} after {cls}, "
                 f"waiting {delay}s..."
             )
@@ -163,9 +166,9 @@ def _paginate(
             all_items.extend(page)
 
         if total is None:
-            print(f"  Fetched {len(all_items)}")
+            logger.info(f"  Fetched {len(all_items)}")
         else:
-            print(f"  Fetched {len(all_items)}/{total}")
+            logger.info(f"  Fetched {len(all_items)}/{total}")
 
         if reached_since:
             break
@@ -201,7 +204,7 @@ def fetch_submissions(
     With `since` set, returns only submissions whose `dateLastActivity` is newer
     than the watermark (incremental delta); with `since` None, a full pull.
     """
-    print("Fetching submissions...")
+    logger.info("Fetching submissions...")
     with _http_client() as client:
         url = f"{base_url}/api/v1/submissions"
         return _paginate(
@@ -216,7 +219,7 @@ def fetch_submissions_extended(
 
     Honors `since` for an incremental delta, the same way as `fetch_submissions`.
     """
-    print("Fetching extended submissions (with review data)...")
+    logger.info("Fetching extended submissions (with review data)...")
     with _http_client() as client:
         url = f"{base_url}/api/v1/_submissions"
         return _paginate(
@@ -265,7 +268,9 @@ def fetch_all_publications(
     (absent from `known`) are always fetched.
     """
     known = known or {}
-    print(f"Fetching full publication details for {len(submissions)} submissions...")
+    logger.info(
+        f"Fetching full publication details for {len(submissions)} submissions..."
+    )
     publications = []
     skipped = 0
 
@@ -285,11 +290,11 @@ def fetch_all_publications(
             publications.append(pub)
 
             if (i + 1) % 50 == 0:
-                print(f"  Fetched {i + 1}/{len(submissions)} publications")
+                logger.info(f"  Fetched {i + 1}/{len(submissions)} publications")
 
     if skipped:
-        print(f"  Skipped {skipped} unchanged publications")
-    print(f"  Fetched {len(publications)}/{len(submissions)} publications")
+        logger.info(f"  Skipped {skipped} unchanged publications")
+    logger.info(f"  Fetched {len(publications)}/{len(submissions)} publications")
     return publications
 
 
@@ -382,7 +387,7 @@ def fetch_all_submission_files(
     submissions (absent from `known`) are always fetched.
     """
     known = known or {}
-    print(f"Fetching submission files for {len(submissions)} submissions...")
+    logger.info(f"Fetching submission files for {len(submissions)} submissions...")
     files: list[dict[str, Any]] = []
     skipped = 0
 
@@ -404,17 +409,19 @@ def fetch_all_submission_files(
             )
 
             if (i + 1) % 50 == 0:
-                print(f"  Fetched files for {i + 1}/{len(submissions)} submissions")
+                logger.info(
+                    f"  Fetched files for {i + 1}/{len(submissions)} submissions"
+                )
 
     if skipped:
-        print(f"  Skipped {skipped} unchanged submissions")
-    print(f"  Fetched {len(files)} file records")
+        logger.info(f"  Skipped {skipped} unchanged submissions")
+    logger.info(f"  Fetched {len(files)} file records")
     return files
 
 
 def fetch_users(base_url: str, api_key: str) -> list[dict[str, Any]]:
     """Fetch all users from /users endpoint."""
-    print("Fetching users...")
+    logger.info("Fetching users...")
     with _http_client() as client:
         url = f"{base_url}/api/v1/users"
         return _paginate(client, url, {"apiToken": api_key})
@@ -453,7 +460,7 @@ def fetch_publication_stats(
     other view counts. `_paginate` tolerates both the `{items, itemsMax}`
     envelope and a bare-array response from this endpoint.
     """
-    print("Fetching publication view stats...")
+    logger.info("Fetching publication view stats...")
     params = _stats_params(
         api_key,
         date_start=date_start,
@@ -506,7 +513,7 @@ def fetch_view_timelines(
     exposes.
     """
     total = len(submission_ids)
-    print(f"Fetching view timelines for {total} submissions ({interval})...")
+    logger.info(f"Fetching view timelines for {total} submissions ({interval})...")
     points = []
 
     with _http_client() as client:
@@ -533,11 +540,11 @@ def fetch_view_timelines(
                     )
 
             if (i + 1) % 50 == 0:
-                print(f"  Fetched {i + 1}/{total} submission timelines")
+                logger.info(f"  Fetched {i + 1}/{total} submission timelines")
 
     # Final tally, unless the in-loop print just emitted it.
     if total and total % 50 != 0:
-        print(f"  Fetched {total}/{total} submission timelines")
+        logger.info(f"  Fetched {total}/{total} submission timelines")
     return points
 
 
@@ -559,7 +566,7 @@ def fetch_view_timeline_totals(
     and `interval` (the granularity), ready to normalize into a journal-wide
     totals table.
     """
-    print(f"Fetching journal-wide view timeline totals ({interval})...")
+    logger.info(f"Fetching journal-wide view timeline totals ({interval})...")
     params = _stats_params(
         api_key,
         date_start=date_start,

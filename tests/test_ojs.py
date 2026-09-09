@@ -140,7 +140,7 @@ def test_normalize_authors_handles_null_seq():
     assert df["author_number"].to_list() == [1, 2, 3, 4]
 
 
-def test_build_email_to_user_id_excludes_duplicate_emails(capsys):
+def test_build_email_to_user_id_excludes_duplicate_emails(caplog):
     users = [
         {"id": 1, "email": "dup@x.org"},
         {"id": 2, "email": "dup@x.org"},  # collision -> excluded, not last-wins
@@ -148,7 +148,7 @@ def test_build_email_to_user_id_excludes_duplicate_emails(capsys):
     ]
     mapping = _build_email_to_user_id(users)
     assert mapping == {"unique@x.org": 3}
-    assert "dup@x.org" in capsys.readouterr().out
+    assert "dup@x.org" in caplog.text
     # The same id repeated on one email is not a conflict.
     assert _build_email_to_user_id(
         [{"id": 5, "email": "a@x.org"}, {"id": 5, "email": "a@x.org"}]
