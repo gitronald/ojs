@@ -1,4 +1,4 @@
-"""Schema class for the normalized JOTS review table (website CSV export).
+"""Schema class for the normalized OJS review table (website CSV export).
 
 Single source of truth for the reviews pipeline: column names, polars dtypes,
 the raw CSV source headers, and the docs exported to ``table_schemas.csv``.

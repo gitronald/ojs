@@ -20,12 +20,21 @@ and 3.3.
 ```
 ojs/
 ├── cli.py              # Typer CLI: init, articles, reviews, api (+ schema docs)
+├── errors.py           # OjsError hierarchy raised by the run entry points
+├── paths.py            # Output directory resolution (argument → env var → default)
 ├── schema.py           # Typed schema framework: Column/Table, apply(), doc export
 ├── utils.py            # HTML stripping + localized-field extraction
-├── website/            # Manual website CSV-export pipelines
+├── website/            # Website CSV-export pipelines
+│   ├── run.py          # run_report_fetch / run_norm entry points
+│   ├── reports.py      # Authenticated report-CSV fetch (OJS login + download)
 │   ├── articles/       # Wide CSV → submissions, authors, editors, decisions
+│   │   ├── normalize.py    # Unpivot the wide CSV into the four tables
+│   │   └── schemas.py      # Submissions/Authors/Editors/Decisions schemas
 │   └── reviews/        # Long CSV → reviews
+│       ├── normalize.py    # Rename and type-cast review data
+│       └── schemas.py      # Reviews schema
 └── api/                # REST pipeline
+    ├── run.py          # run_fetch / run_download / run_norm entry points
     ├── client.py       # OJS REST client (httpx, pagination, retry, early-stop)
     ├── files.py        # Submission file artifact downloads (disk layout, manifest)
     ├── normalize.py    # JSON → relational tables (schema-driven)
@@ -33,6 +42,11 @@ ojs/
     ├── sync.py         # Incremental sync: high-water-mark state, raw-JSON upsert
     └── swagger.json    # OJS API reference (snapshot)
 ```
+
+The CLI is a thin shell over `api/run.py` and `website/run.py`: every command
+resolves its options, calls the matching `run_*` function, and turns an error
+into an exit code. The pipelines themselves are importable — see
+[Using ojs as a library](#using-ojs-as-a-library).
 
 ## Installation
 
@@ -84,6 +98,7 @@ precedence): `~/.config/ojs/.env` by default, or the file named by
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `OJS_CONFIG_PATH` | `~/.config/ojs/.env` | User-level config file, loaded as a fallback for values the current directory's `.env` and the environment don't set |
 | `OJS_BASE_URL` | (required for `api`) | OJS journal URL (e.g. `https://example.org/index.php/myjournal`) |
 | `OJS_API_KEY` | (required for `api`) | OJS API token |
 | `OJS_USERNAME` | (required for website `fetch`) | Editorial-manager login username |
@@ -228,8 +243,118 @@ How it works:
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
 
+**Upgrade note.** The view-stats timelines gained an `interval` column (`day` vs
+`month`) that is part of the incremental merge key. Timelines written before that
+change lack it, so the first `--incremental` run after upgrading would leave the
+legacy points sitting alongside the re-fetched ones, since their keys differ. Run
+a one-time `ojs api fetch --full` after upgrading to rewrite
+`views_timeline.json` and `views_timeline_totals.json` cleanly.
+
+## Normalized output
+
+Every `norm` command writes one **CSV per table**, named for the table, next to a
+`table_schemas.csv` written by the matching `schema` command:
+
+| Command | Output directory |
+| --- | --- |
+| `ojs api norm` | `$OJS_API_DIR/normalized/` (default `data/ojs-api/normalized/`) |
+| `ojs articles norm` | `$OJS_ARTICLES_DIR` (default `data/ojs-website/articles/`) |
+| `ojs reviews norm` | `$OJS_REVIEWS_DIR` (default `data/ojs-website/reviews/`) |
+
+**`ojs api norm`** — eight tables from the REST API:
+
+| Table | One row per |
+| --- | --- |
+| `submissions` | Submission — status, stage, dates, type, DOI, and a first-author summary |
+| `publications` | Publication version — title, abstract, issue, pages, license, galley count |
+| `authors` | Author per submission, `author_number` in display order, joined to OJS accounts via `user_id` |
+| `review_assignments` | Reviewer assignment — round, status, response and review due dates |
+| `submission_files` | Current file artifact — stage, review round, revision count, uploader, URL |
+| `publication_stats` | Published submission — abstract, galley, PDF, HTML, and other view totals |
+| `views_timeline` | Submission/date/kind view count (long format) |
+| `views_timeline_totals` | Journal-wide date/kind view count (long format) |
+
+The last three appear only when stats were fetched, and `submission_files` only
+after `ojs api fetch --files` or `ojs api download`.
+
+**`ojs articles norm`** — four tables unpivoted from the wide Articles Report:
+`submissions` (one row per submission, including the language, rights, subjects,
+and disciplines metadata the REST API doesn't expose), plus `authors`, `editors`,
+and `decisions`, each one row per numbered `(Author N)` / `(Editor N)` /
+decision column group.
+
+**`ojs reviews norm`** — a single `reviews` table, one row per reviewer
+assignment, carrying the full date chain (assigned, notified, confirmed,
+completed, acknowledged, reminded), the response and review overdue day counts,
+the recommendation, and the reviewer's comments.
+
+## Using ojs as a library
+
+Every pipeline the CLI runs is an importable function, so the package can be
+driven in-process instead of through `subprocess`:
+
+```python
+from ojs.api.run import run_fetch, run_norm
+
+fetch = run_fetch(incremental=True, stats=False)
+print(fetch.submissions.fetched, "changed;", fetch.submissions.total, "on disk")
+
+norm = run_norm()
+print(norm.rows)  # {"submissions": 354, "publications": 361, ...}
+```
+
+The website pipelines mirror this, parameterized by report. They have their own
+`run_norm`, so import the modules rather than the functions when a caller drives
+both pipelines:
+
+```python
+from ojs.website import run as website
+
+export = website.run_report_fetch("reviews")  # -> Path to the downloaded CSV
+result = website.run_norm("reviews", input_file=export)
+```
+
+Three conventions make these usable from another codebase:
+
+- **Arguments before environment.** Apart from the website entry points' leading
+  `report`, every argument is keyword-only, and the ones naming a location or a
+  credential default to `None`, meaning "read the environment" — the same
+  defaults the CLI uses. Pass `base_url`, `api_key`, `out_dir`, and friends
+  explicitly to bypass `.env` entirely. `ojs.paths` exposes the same directory
+  resolution (`api_dir()`, `articles_dir()`, …) so a caller can ask where output
+  lands rather than reconstructing the defaults.
+- **Results, not printed lines.** `run_fetch` returns a `FetchResult` (per-dataset
+  `fetched`/`total` counts, whether stats succeeded, whether the run was
+  incremental, the output directory); `run_norm` returns the table names and row
+  counts; `run_download` returns the downloaded and failed records.
+- **Exceptions, not exit codes.** Library code raises `ojs.errors.OjsError` —
+  `ConfigError` (missing credentials or report settings), `OptionError`
+  (contradictory or malformed arguments), `MissingDataError` (a required input is
+  not on disk). The CLI catches these and maps them back to its usual messages
+  and exit codes.
+
+Progress goes to the `ojs` logger, which the package fits with a `NullHandler`,
+so an embedding caller sees nothing on the console by default. To get the same
+lines the CLI prints, attach a handler on stdout (`basicConfig` alone would send
+them to stderr):
+
+```python
+import logging
+import sys
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(message)s"))
+logger = logging.getLogger("ojs")
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+```
+
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
 - The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
 - The fetched website reports (`reviews-*.csv`, `articles-*.csv`) and their normalized tables likewise carry reviewer and author names, emails, and ORCIDs. They write under `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, under the gitignored `data/`) — apply the same umask/private-directory care as for the API dumps.
+
+## Changelog
+
+Release history is in [CHANGELOG.md](CHANGELOG.md).

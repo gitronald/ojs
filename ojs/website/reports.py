@@ -21,6 +21,8 @@ from typing import Protocol
 
 import httpx
 
+from ojs.errors import OjsError
+
 __all__ = [
     "ReportAuthError",
     "download_report",
@@ -41,8 +43,13 @@ SIGN_IN_PATH = "login/signIn"
 _BOM = chr(0xFEFF)
 
 
-class ReportAuthError(RuntimeError):
-    """Login failed, or the session was not accepted for the report download."""
+class ReportAuthError(OjsError, RuntimeError):
+    """Login failed, or the session was not accepted for the report download.
+
+    Also an :class:`~ojs.errors.OjsError`, so a caller (and the CLI) can handle
+    every deliberate pipeline failure with one ``except`` clause. It stays a
+    ``RuntimeError`` too, so existing handlers keep working.
+    """
 
 
 class _Response(Protocol):
