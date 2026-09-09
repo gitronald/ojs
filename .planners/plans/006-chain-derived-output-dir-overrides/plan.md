@@ -1,11 +1,11 @@
 ---
 id: 6
 slug: chain-derived-output-dir-overrides
-status: active
+status: done
 branch: feature/chain-derived-output-dir-overrides
 created: 2026-09-08T21:38:23-07:00
-concluded:
-pr:
+concluded: 2026-09-08T21:49:50-07:00
+pr: https://github.com/gitronald/ojs/pull/33
 ---
 
 # Chain derived output-directory overrides through the run entry points
@@ -96,6 +96,25 @@ Confirm that reading is intended and state it in the docstrings, because the
 alternative — an explicit parent argument outranking the child's env var — is
 also defensible and would be a behavior change worth calling out.
 
+### Decisions taken
+
+Confirmed at implementation time, superseding the recommendation above on the
+sub-question:
+
+- **Option A**, as recommended: the parent keyword goes on the helper that owns
+  the derivation.
+- **The parent argument outranks the child's env var** — the *alternative*
+  reading of the sub-question, not the one proposed above. Rationale: the point
+  of "argument beats environment" is that a programmatic caller is not silently
+  reconfigured by ambient environment, and keeping the child env var ahead would
+  only half-fix the bug — `run_norm("articles", downloads_dir=X)` would still
+  write somewhere unexpected whenever `OJS_ARTICLES_DIR` happened to be set in
+  the caller's `.env`, which is the very surprise this plan calls a bug. The
+  resulting rule is one rule rather than two: anything the caller passes beats
+  anything in the environment. The child env vars still apply whenever no
+  directory argument reaches the helper — every CLI invocation, since the CLI
+  resolves directories from the environment only.
+
 ### Implementation order
 
 1. Add the parent keyword to `articles_dir`, `reviews_dir`, and `files_dir` in
@@ -128,3 +147,78 @@ also defensible and would be a behavior change worth calling out.
   environment only, and that is deliberate — this plan does not change it.
 - Renaming or consolidating the `OJS_*_DIR` env vars, or changing any default
   path. The precedence bug is fixable without touching either.
+
+## Log
+
+- Applied Option A with parent-argument-wins precedence (see *Decisions taken*).
+- `ReportSpec.out_dir` could not keep its `Callable[[Path | str | None], Path]`
+  annotation: a `Callable` alias cannot express a keyword-only parameter, and
+  that parameter is the whole point of the change. Replaced it with an
+  `OutDirResolver` `Protocol` in `ojs/website/run.py`, exported alongside
+  `ReportSpec`.
+- Both call sites pass the **raw** parent argument, not the parent they already
+  resolved. Passing the resolved path would mean the child's env var could never
+  win, since the parent is never `None` after resolution — the child env var
+  would be dead code rather than the no-argument fallback it is meant to be.
+- Step 3 placed the helper unit tests in `tests/test_ojs.py`; they went into
+  `tests/test_run.py` instead, which is where every existing `ojs.paths` test
+  lives (`PATH_CASES`, `clean_path_env`, `test_nested_defaults_follow_their_parent`).
+  The new `DERIVED_PATH_CASES` table sits directly below them and reuses the
+  same fixture.
+- `ojs.api.run.run_norm` needed no change: it already derives its default output
+  directory from the `source_dir` it resolved, rather than calling a helper with
+  no argument. The bug was confined to the two call sites the plan names.
+- Full suite: 182 passed, 92% coverage (86% floor). `ruff check`,
+  `ruff format --check`, and `pyrefly check` all clean.
+
+### Review follow-up (2026-09-08)
+
+Reviewed at level `medium` on PR #33; no actionable findings, so no code changed
+after the review. Four cleanup candidates were raised and all four rejected on
+verification — recorded here because three of them are things a later reader is
+likely to re-propose:
+
+- The "pass the raw argument, not the resolved one" comments at both call sites
+  were flagged as restating the docstrings. Rejected: the docstrings state the
+  user-visible precedence, the comments guard the implementation trap. They stay.
+- Routing through `downloads_dir(downloads)` / `api_dir(api)` in the parent
+  branch was flagged as needless indirection, since only the parent's override
+  branch is reachable there. Rejected: that is Option A — the derived default
+  stays expressed in the parent's own resolution rule. Inlining `Path(...)`
+  would be a regression against the decision above, not a simplification.
+- The unused `env_var` parameter in
+  `test_website_run_norm_downloads_override_reaches_the_tables` was flagged as
+  dead. Rejected: `WEBSITE_REPORT_CASES` is shared with the sibling test that
+  does assert on it, and pytest requires every parametrized name in the
+  signature; splitting the table to drop the parameter would cost more than it
+  saves.
+
+The correctness finder returned nothing: the precedence rule is applied
+consistently across all three helpers and both call sites, and no existing caller
+reaches the new keyword-only parameters positionally.
+
+## Retrospective
+
+- The plan's recommendation on the open sub-question was overturned during
+  implementation, and that was the right call. Writing the sub-question down as
+  an explicit *decision to make* — rather than settling it in the proposal — is
+  what made the reversal cheap: the alternative was already argued on the page,
+  so choosing it took a paragraph rather than a rethink.
+- The deciding argument only became visible once the bug was stated concretely.
+  Keeping `OJS_ARTICLES_DIR` ahead of an explicit parent would have half-fixed
+  the bug — `run_norm("articles", downloads_dir=X)` would still surprise a caller
+  whose `.env` happened to set the child var. A rule with one clause (arguments
+  beat the environment) beat a rule with two.
+- The type annotation was the one thing the plan did not anticipate. A
+  `Callable[...]` alias cannot express a keyword-only parameter, so adding the
+  argument forced a `Protocol`. Worth remembering: a `Callable` field in a spec
+  dataclass is a soft constraint on how its callees may later evolve.
+- Both call sites had to pass the **raw** argument rather than the parent they
+  had already resolved. This is the sharp edge of the design and the reason the
+  inline comments exist — the resolved value is never `None`, so substituting it
+  silently converts the child's env var from a fallback into dead code. A
+  regression test pins each precedence leg at both entry points.
+- The plan's step 3 named the wrong test file. Checking where the existing
+  `ojs.paths` tests actually live (`tests/test_run.py`, next to `PATH_CASES` and
+  `clean_path_env`) took one grep and let the new cases reuse the fixture rather
+  than rebuild it.
