@@ -44,3 +44,30 @@ hook id, and the `git push` permission loosening.
 **Verification:** `uv sync --all-groups`, `uv run ruff check .`,
 `uv run ruff format --check .`, `uv run pyrefly check`,
 `uv run pre-commit run --all-files`, `uv run pytest`.
+
+## Log
+
+- 2026-09-09: Walked the sync matrix against the current `template/`. Most rows
+  were already identical — `test.yml` and `publish.yml` are byte-for-byte the
+  template's, `.python-version`, `.gitignore`, and every `pyproject.toml`
+  tooling section matched, `.planners/` is present, and the Dependabot repo
+  toggles were already alerts-on / security-updates-off. Applied: ruff-pre-commit
+  v0.16.5 -> v0.16.6, `pytest>=9.0.2` -> `>=9.0.3` (with the lock refreshed),
+  and the `dependabot.yml` header comment plus `target-branch: dev` on both
+  ecosystems.
+- 2026-09-09: Divergence decisions. Kept the repo's `ruff-check` hook id over
+  the template's deprecated `ruff` alias — the repo is ahead there, so only the
+  `rev` was carried forward. Kept `.claude/settings.json` as-is: its sole
+  difference from the template is dropping `Bash(git push:*)` from `ask`, a
+  deliberate loosening, and nothing else in the file diverged.
+- 2026-09-09: Gitignored `.claude/` payload applied on disk in the main
+  checkout, not on this branch: `hooks/lint-typecheck.sh` regained the
+  template's comment explaining why the non-mutating `ruff format --check`
+  mirrors CI (script body was already current), and `CLAUDE.md`'s
+  `## Before finishing a task` intro was corrected from "Run both checks" to
+  "Run all three checks" (it lists three commands). The `## Development`
+  bullets were already current.
+- 2026-09-09: Verification green in the worktree — `ruff check`,
+  `ruff format --check`, `pyrefly check` (0 errors),
+  `pre-commit run --all-files`, and `pytest` (182 passed, 91.98% coverage
+  against the pinned 86 floor).
