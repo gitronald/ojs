@@ -32,7 +32,7 @@ published to PyPI) — unchanged from plan 004.
 | `.github/workflows/publish.yml` | sync: `astral-sh/setup-uv` v9.0.0 -> v10.0.1 |
 | `.github/dependabot.yml` | merge: adopt the template's trimmed header (guide link plus the default-branch caveat) and `target-branch: dev` on both ecosystems (`origin/dev` exists). Inert until it reaches `main` — Dependabot reads config from the default branch |
 | Dependabot repo toggles | already correct: alerts on (204), security updates off (`enabled:false`); no change |
-| `.planners/` | present |
+| `.planners/` | present; reconcile the repo against planners 0.6.1 via `planners install --check` (see below) |
 | `ojs/`, `tests/`, `README.md`, `CHANGELOG.md` | never |
 
 **Deliberate deviations carried forward:** SHA-pinned workflow actions (now the
@@ -62,6 +62,19 @@ hook id.
   deliberate `--python ${{ matrix.python-version }}` restatement on `uv sync` in
   `test.yml`, and the trimmed `dependabot.yml` header that leaves the rationale
   in the template's automation guide.
+- 2026-09-09: Brought the repo's planners wiring up to 0.6.1.
+  `planners install --check` reported `gitattr: missing` with the holder, rule,
+  and pre-commit hook already `ok`, so the only gap was the index merge
+  attribute: `.gitattributes` now carries `.planners/README.md merge=union`, so
+  a local merge resolves the generated index instead of conflicting on it
+  (GitHub does not apply the attribute, so a PR can still report a conflict
+  there — merge the base in locally and regenerate rather than hand-editing).
+  Nothing to clean up: this repo has no legacy planners artifacts — it was
+  created on the `.planners/` layout, so there is no `docs/plans/`, `TODO.md`,
+  `.claude/rules/plan-files.md`, or per-repo holder, and the
+  `planners-validate` hook block already matches the generated form byte for
+  byte. `planners index .` produces no diff and `planners validate` passes on
+  all 8 plans.
 - 2026-09-09: Verification green in the worktree — `ruff check`,
   `ruff format --check`, `pyrefly check` (0 errors),
   `pre-commit run --all-files`, and `pytest` (182 passed, 91.98% coverage
