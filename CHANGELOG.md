@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Sync the development tooling with the project template: bump the ruff pre-commit hook to v0.16.6, the `setup-uv` action to v10.0.1 in both workflows, and the `pytest` dev floor to 9.0.3.
+- Point Dependabot version updates at the `dev` branch so its PRs open against the development branch rather than `main`.
+- Pin the test matrix interpreter explicitly on the `uv sync` step so every matrix cell tests the Python version it names.
+- No runtime code changes; CLI and library behavior are unchanged.
+
 ## [0.9.1] - 2026-09-08
 
 - Fix directory overrides being silently ignored by the directories derived from them: a library caller passing `downloads_dir` to `ojs.website.run.run_norm` (or `api_dir` to `ojs.api.run.run_download`) read from the override but wrote the normalized tables and downloaded artifacts to the default location instead. `ojs.paths.articles_dir` and `reviews_dir` gain a keyword-only `downloads` argument and `files_dir` a keyword-only `api` argument, which the run entry points now pass through; the additions are backward compatible. A parent passed as an argument counts as an explicit argument and so outranks the child's own `OJS_ARTICLES_DIR`/`OJS_REVIEWS_DIR`/`OJS_FILES_DIR` — those still apply whenever no directory argument is given, which includes every CLI invocation. CLI behavior is unchanged.
