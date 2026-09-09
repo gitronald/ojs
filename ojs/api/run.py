@@ -436,7 +436,10 @@ def run_download(
     ``api_dir`` is the JSON dump directory this reads (the same one
     :func:`run_fetch` writes and :func:`run_norm` reads); ``dest_dir`` is where
     the artifacts land. The two are named for what they hold rather than both
-    being ``out_dir``, so redirecting the downloads is unambiguous.
+    being ``out_dir``, so redirecting the downloads is unambiguous. With no
+    ``dest_dir``, the artifacts land under ``api_dir`` when that was passed, so
+    overriding the dump directory carries the artifacts with it; otherwise
+    ``OJS_FILES_DIR`` (or the default) decides.
 
     Raises:
         ConfigError: neither the arguments nor the environment supply
@@ -513,7 +516,10 @@ def run_download(
     ]
     logger.info(f"{len(to_download)} file records selected for download")
 
-    artifacts_dir = paths.files_dir(dest_dir)
+    # Pass the raw `api_dir` argument, not the resolved `api_out_dir`: when the
+    # caller gave none, the helper must still fall through to OJS_FILES_DIR
+    # rather than to a path derived from the default API directory.
+    artifacts_dir = paths.files_dir(dest_dir, api=api_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = artifacts_dir / "manifest.json"
     manifest: list[dict[str, Any]] = (

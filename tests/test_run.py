@@ -69,6 +69,52 @@ def test_nested_defaults_follow_their_parent(clean_path_env, monkeypatch):
     assert paths.files_dir() == Path("/a/files")
 
 
+# The derived directories, each with the keyword naming the parent it derives
+# from, its own env var, and the subdirectory it appends to that parent.
+# (resolver, parent keyword, env var, subdir)
+DERIVED_PATH_CASES = [
+    (paths.articles_dir, "downloads", "OJS_ARTICLES_DIR", "articles"),
+    (paths.reviews_dir, "downloads", "OJS_REVIEWS_DIR", "reviews"),
+    (paths.files_dir, "api", "OJS_FILES_DIR", "files"),
+]
+
+
+@pytest.mark.parametrize(
+    ("resolve", "parent_kw", "env_var", "subdir"), DERIVED_PATH_CASES
+)
+def test_derived_path_follows_a_parent_argument(
+    clean_path_env, resolve, parent_kw, env_var, subdir
+):
+    # A parent passed as an argument is what a caller that overrode the parent
+    # chains down, so the derived directory lands under it rather than under the
+    # parent's own default.
+    assert resolve(**{parent_kw: "/parent"}) == Path("/parent") / subdir
+
+
+@pytest.mark.parametrize(
+    ("resolve", "parent_kw", "env_var", "subdir"), DERIVED_PATH_CASES
+)
+def test_parent_argument_outranks_the_child_env_var(
+    clean_path_env, monkeypatch, resolve, parent_kw, env_var, subdir
+):
+    # The precedence rule is one rule, not two: anything the caller passes beats
+    # anything in the environment, a parent argument included. Pinned by a test
+    # because the alternative reading (the child's env var winning) is the one
+    # that made a library caller's override silently ignored.
+    monkeypatch.setenv(env_var, "/from/env")
+    assert resolve(**{parent_kw: "/parent"}) == Path("/parent") / subdir
+
+
+@pytest.mark.parametrize(
+    ("resolve", "parent_kw", "env_var", "subdir"), DERIVED_PATH_CASES
+)
+def test_direct_override_beats_the_parent_argument(
+    clean_path_env, resolve, parent_kw, env_var, subdir
+):
+    # Saying where this directory goes outranks saying where its parent went.
+    assert resolve("/explicit", **{parent_kw: "/parent"}) == Path("/explicit")
+
+
 # --- Library logging ----------------------------------------------------------
 
 
@@ -580,6 +626,110 @@ def test_run_download_selects_and_records(tmp_path, monkeypatch):
     assert (tmp_path / "files" / "5/production_ready/900_final.pdf").exists()
 
 
+def _stub_file_downloads(monkeypatch) -> None:
+    """Serve every artifact request the same bytes, so no network is touched."""
+    from ojs.api import files as files_mod
+
+    class _Resp:
+        content = b"PDFDATA"
+
+        def raise_for_status(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, params=None):
+            return _Resp()
+
+    monkeypatch.setattr(files_mod, "_http_client", _Client)
+
+
+def _write_one_file_record(api_dir: Path) -> None:
+    api_dir.mkdir(parents=True, exist_ok=True)
+    (api_dir / "submission_files.json").write_text(
+        json.dumps(
+            [
+                {
+                    "_submission_id": 5,
+                    "id": 100,
+                    "fileId": 900,
+                    "fileStage": 11,
+                    "name": "final.pdf",
+                    "url": "http://base/files/900",
+                    "revisions": [],
+                }
+            ]
+        )
+    )
+
+
+def test_run_download_api_dir_override_reaches_the_artifacts(
+    clean_path_env, tmp_path, monkeypatch
+):
+    # Overriding the dump directory carries the artifacts with it: reading the
+    # JSON from the override but landing the files under the default was the
+    # same non-chaining bug as the website tables.
+    _stub_file_downloads(monkeypatch)
+    api_dir = tmp_path / "api"
+    _write_one_file_record(api_dir)
+
+    result = api_run.run_download(
+        base_url="http://base",
+        api_key="key",
+        api_dir=api_dir,
+        submission_ids=[5],
+        fetch=False,
+    )
+
+    assert result.files_dir == api_dir / "files"
+    assert (api_dir / "files" / "5/production_ready/900_final.pdf").exists()
+
+
+def test_run_download_api_dir_override_outranks_the_files_env_var(
+    clean_path_env, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("OJS_FILES_DIR", str(tmp_path / "from-env"))
+    _stub_file_downloads(monkeypatch)
+    api_dir = tmp_path / "api"
+    _write_one_file_record(api_dir)
+
+    result = api_run.run_download(
+        base_url="http://base",
+        api_key="key",
+        api_dir=api_dir,
+        submission_ids=[5],
+        fetch=False,
+    )
+
+    assert result.files_dir == api_dir / "files"
+    assert not (tmp_path / "from-env").exists()
+
+
+def test_run_download_files_env_var_applies_without_an_override(
+    clean_path_env, tmp_path, monkeypatch
+):
+    # With no directory argument the env var still decides, as it does for the CLI.
+    _stub_file_downloads(monkeypatch)
+    api_dir = tmp_path / "api"
+    _write_one_file_record(api_dir)
+    monkeypatch.setenv("OJS_API_DIR", str(api_dir))
+    monkeypatch.setenv("OJS_FILES_DIR", str(tmp_path / "from-env"))
+
+    result = api_run.run_download(
+        base_url="http://base",
+        api_key="key",
+        submission_ids=[5],
+        fetch=False,
+    )
+
+    assert result.files_dir == tmp_path / "from-env"
+
+
 def test_run_download_records_inaccessible_files(tmp_path, monkeypatch):
     """A 403 file lands in DownloadResult.failed and in skipped.json."""
     import httpx
@@ -695,6 +845,89 @@ def test_website_run_norm_picks_the_newest_export(tmp_path):
     assert result.tables == ["reviews"]
     assert result.rows == {"reviews": 1}
     assert (tmp_path / "out" / "reviews.csv").exists()
+
+
+def _write_articles_csv(path: Path) -> None:
+    import polars as pl
+
+    pl.DataFrame(
+        [
+            {
+                "Submission ID": 1,
+                "Title": "On Computing",
+                "Abstract": "<p>An abstract</p>",
+                "Status": "Published",
+                "Date submitted": "2024-01-01 09:00:00",
+                "Given Name (Author 1)": "Ada",
+                "Family Name (Author 1)": "Lovelace",
+                "Given Name (Editor 1)": "Charles",
+                "Family Name (Editor 1)": "Babbage",
+                "Editor Decision 1  (Editor 1)": "Accept",
+                "Date decided 1  (Editor 1)": "2024-02-15 12:00:00",
+            }
+        ]
+    ).write_csv(path)
+
+
+# (report, CSV writer, the report's own output env var, one table it writes)
+WEBSITE_REPORT_CASES = [
+    ("reviews", _write_reviews_csv, "OJS_REVIEWS_DIR", "reviews.csv"),
+    ("articles", _write_articles_csv, "OJS_ARTICLES_DIR", "submissions.csv"),
+]
+
+
+@pytest.mark.parametrize(
+    ("report", "write_csv", "env_var", "table"), WEBSITE_REPORT_CASES
+)
+def test_website_run_norm_downloads_override_reaches_the_tables(
+    clean_path_env, tmp_path, report, write_csv, env_var, table
+):
+    # Overriding the downloads directory redirects both ends of the pipeline:
+    # the export is read from there and the tables are written under it. Before
+    # the derived helpers took a parent argument, the tables silently went to
+    # the default (or env-var) location instead.
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    write_csv(downloads / f"{report}-20240601.csv")
+
+    result = web_run.run_norm(report, downloads_dir=downloads)
+
+    assert result.out_dir == downloads / report
+    assert (downloads / report / table).exists()
+
+
+@pytest.mark.parametrize(
+    ("report", "write_csv", "env_var", "table"), WEBSITE_REPORT_CASES
+)
+def test_website_run_norm_downloads_override_outranks_the_table_env_var(
+    clean_path_env, monkeypatch, tmp_path, report, write_csv, env_var, table
+):
+    # The caller's argument beats the ambient environment, so a stray env var in
+    # the caller's .env cannot silently divert the tables.
+    monkeypatch.setenv(env_var, str(tmp_path / "from-env"))
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    write_csv(downloads / f"{report}-20240601.csv")
+
+    result = web_run.run_norm(report, downloads_dir=downloads)
+
+    assert result.out_dir == downloads / report
+    assert not (tmp_path / "from-env").exists()
+
+
+def test_website_run_norm_table_env_var_applies_without_an_override(
+    clean_path_env, monkeypatch, tmp_path
+):
+    # The other half of the rule: with no directory argument, the env var still
+    # decides -- which is every CLI invocation.
+    monkeypatch.setenv("OJS_DOWNLOADS_DIR", str(tmp_path / "downloads"))
+    monkeypatch.setenv("OJS_REVIEWS_DIR", str(tmp_path / "from-env"))
+    (tmp_path / "downloads").mkdir()
+    _write_reviews_csv(tmp_path / "downloads" / "reviews-20240601.csv")
+
+    result = web_run.run_norm("reviews")
+
+    assert result.out_dir == tmp_path / "from-env"
 
 
 def test_website_run_norm_accepts_an_explicit_input_file(tmp_path):
