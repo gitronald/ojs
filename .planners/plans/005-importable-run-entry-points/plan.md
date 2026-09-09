@@ -1,10 +1,10 @@
 ---
 id: 5
 slug: importable-run-entry-points
-status: active
+status: done
 branch: feature/importable-run-entry-points
 created: 2026-09-08T14:15:19-07:00
-concluded:
+concluded: 2026-09-08T18:23:15-07:00
 pr: https://github.com/gitronald/ojs/pull/31
 ---
 
@@ -225,3 +225,101 @@ The version was left at `0.8.4a0`. The public API is additive, so the next stabl
 release should be a **minor** bump (`0.9.0`) rather than the patch the current
 prerelease implies -- run from `main` through the normal release workflow, not
 from this branch.
+
+### Review follow-up
+
+**2026-09-08** — Review of PR #31 at high effort: four finders and four
+adversarial verifiers over the full diff. 28 candidates, 14 survived
+verification. Two commits actioned them.
+
+Actioned (`update: tighten run entry point args, guards, and tests`):
+
+- **`run_download`'s `out_dir` named the input directory**, not the output --
+  the reverse of `run_fetch`/`run_norm` in the same module, so a caller
+  redirecting downloads would silently redirect the JSON dumps instead and the
+  files would still land in the default. Renamed to `api_dir`, matching
+  `run_norm`; `dest_dir` remains the artifact destination. The CLI never passed
+  it, so nothing observable changed. This was the one finding worth catching
+  before release -- a public keyword argument is expensive to rename later.
+- **`OPTIONAL_NORM_FILES` was dead.** `run_norm` hardcoded the same four names,
+  so editing the mapping to add a dump would have been a silent no-op. It is now
+  a tuple that `run_norm` iterates.
+- **`stats_interval` was unvalidated in the library.** The CLI's enum guards it
+  on that side, so a direct caller passing `"days"` got a raw
+  `httpx.HTTPStatusError` mid-fetch instead of the `OptionError` every other
+  malformed argument raises. Added `STATS_INTERVALS` and an up-front check.
+- **The quiet-library test poisoned logging's effective-level cache.** It
+  restored the `ojs` logger's level by attribute assignment; only `setLevel`
+  calls `_clear_cache()`. A verifier demonstrated the real `ojs.schema` logger
+  left with `_cache == {20: False}` while `ojs.level` was 20 -- any later test
+  asserting an INFO record via `caplog` would have silently seen nothing.
+  Latent, because every existing `caplog` assertion checks WARNING records.
+  Fixed, and the test now asserts the child logger is left as it was found.
+- **Four coverage gaps on surface this plan introduced**: the stats success path
+  (`stats_ok` and the three stats `DatasetCount`s were only ever asserted
+  `None`/`False`), the stats watermark advancing on success, a standalone
+  `full=True` run's sync-state reset, `files=True`, and `DownloadResult.failed`
+  plus the `skipped.json` persistence block (zero coverage). Six tests added;
+  `api/run.py` coverage 91% -> 95%, suite 159 -> 165 passing, total 91.7%.
+
+Actioned (`update: correct library usage docs in readme, changelog`):
+
+- The README and CHANGELOG both claimed *every* entry point is keyword-only and
+  defaults to `None`; the two website entry points take a required positional
+  `report` with no environment fallback. Both corrected.
+- The README's two snippets imported a different `run_norm` under the same name;
+  a verifier reproduced the resulting `TypeError` from combining them. The
+  website example now imports the module (`website.run_norm`).
+- The README offered `logging.basicConfig(...)` as the way to get "the CLI's
+  output", but `basicConfig` binds to stderr while the CLI deliberately routes
+  through a stdout proxy -- a caller capturing stdout would have got an empty
+  file. Replaced with an explicit stdout handler on the `ojs` logger.
+
+Conscious no-ops:
+
+- **CLI flag spellings in library error messages** (`--full cannot be combined
+  with --incremental/--since`). Flagged by two finders, rejected on
+  verification: the text pre-exists verbatim on `dev`, the tests pin it, and it
+  is what keeps CLI output byte-identical -- this plan's own acceptance bar.
+  Making the messages library-native means mapping them in `cli.py`, which is a
+  behavior change, not a cleanup.
+- **Two classes named `NormResult`** (`api.run` and `website.run`). They are
+  genuinely different results and module-qualified use is ordinary Python;
+  renaming either would be worse. Documented the distinction in the website
+  class's docstring instead.
+- **Five untested paths verified as pre-existing on `dev`** -- the non-403
+  re-raise in the stats block, `run_download`'s default `fetch=True` path and
+  its no-explicit-ids branch, `since` without `incremental`, and the
+  `stats_last_sync` advance as an internal state field. The refactor moved this
+  code without changing it; closing those gaps is separate work.
+- **The three `schema` commands still hold their logic in `cli.py`.** Out of
+  this plan's stated scope, which named the `fetch`/`norm`/`download` pipelines.
+
+## Retrospective
+
+- **The compatibility bar did the design work.** Holding "nothing observable
+  changes" as the acceptance criterion settled the two decisions the plan had
+  left open -- `OptionError` split out from `ConfigError` (to keep click's exit
+  2), and the dashed flag names kept inside library messages. Both look like
+  layering violations in isolation and are correct against the bar. It also
+  paid off in review: two finders independently flagged the flag names, and the
+  bar is what rejected them.
+- **`logging` over an `on_progress` callback was right, and bigger than
+  planned.** The plan scoped the conversion to the command bodies; leaving
+  `client.py` and the normalizers printing would have made "quiet by default" a
+  half-truth and the silence test meaningless. The cost was one real subtlety --
+  `StreamHandler` binding its stream at construction, which would have broken
+  every `CliRunner` test -- and one latent trap the review caught, the
+  effective-level cache. Global logging state is harder to put back than it
+  looks; a test that touches it should restore through the API that invalidates
+  the cache, not by assignment.
+- **The refactor's own new surface is where the coverage debt landed.** Every
+  confirmed gap was a field this plan added (`stats_ok`, `DownloadResult.failed`,
+  `sync_state_written`), not old logic -- and the verifier that separated those
+  from the five pre-existing gaps is what kept the follow-up proportionate.
+  Returning results instead of printing them creates assertions someone has to
+  write; extracting an entry point is only half the work.
+- **Worth repeating next time:** diffing the pre- and post-refactor CLI across
+  18 scenarios gave more confidence than the test suite did, and took minutes.
+  For a pure refactor with a byte-identical bar, that comparison is the real
+  test.
