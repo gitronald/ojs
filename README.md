@@ -303,23 +303,26 @@ norm = run_norm()
 print(norm.rows)  # {"submissions": 354, "publications": 361, ...}
 ```
 
-The website pipelines mirror this, parameterized by report:
+The website pipelines mirror this, parameterized by report. They have their own
+`run_norm`, so import the modules rather than the functions when a caller drives
+both pipelines:
 
 ```python
-from ojs.website.run import run_norm, run_report_fetch
+from ojs.website import run as website
 
-export = run_report_fetch("reviews")  # -> Path to the downloaded CSV
-result = run_norm("reviews", input_file=export)
+export = website.run_report_fetch("reviews")  # -> Path to the downloaded CSV
+result = website.run_norm("reviews", input_file=export)
 ```
 
 Three conventions make these usable from another codebase:
 
-- **Arguments before environment.** Every entry point is keyword-only and
-  defaults to `None`, meaning "read the environment" — the same defaults the CLI
-  uses. Pass `base_url`, `api_key`, `out_dir`, and friends explicitly to bypass
-  `.env` entirely. `ojs.paths` exposes the same directory resolution
-  (`api_dir()`, `articles_dir()`, …) so a caller can ask where output lands
-  rather than reconstructing the defaults.
+- **Arguments before environment.** Apart from the website entry points' leading
+  `report`, every argument is keyword-only, and the ones naming a location or a
+  credential default to `None`, meaning "read the environment" — the same
+  defaults the CLI uses. Pass `base_url`, `api_key`, `out_dir`, and friends
+  explicitly to bypass `.env` entirely. `ojs.paths` exposes the same directory
+  resolution (`api_dir()`, `articles_dir()`, …) so a caller can ask where output
+  lands rather than reconstructing the defaults.
 - **Results, not printed lines.** `run_fetch` returns a `FetchResult` (per-dataset
   `fetched`/`total` counts, whether stats succeeded, whether the run was
   incremental, the output directory); `run_norm` returns the table names and row
@@ -331,13 +334,19 @@ Three conventions make these usable from another codebase:
   and exit codes.
 
 Progress goes to the `ojs` logger, which the package fits with a `NullHandler`,
-so an embedding caller sees nothing on the console by default. To get the CLI's
-output, attach a handler:
+so an embedding caller sees nothing on the console by default. To get the same
+lines the CLI prints, attach a handler on stdout (`basicConfig` alone would send
+them to stderr):
 
 ```python
 import logging
+import sys
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(message)s"))
+logger = logging.getLogger("ojs")
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 ```
 
 ## Security & privacy
