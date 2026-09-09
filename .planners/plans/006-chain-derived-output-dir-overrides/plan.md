@@ -5,7 +5,7 @@ status: active
 branch: feature/chain-derived-output-dir-overrides
 created: 2026-09-08T21:38:23-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/33
 ---
 
 # Chain derived output-directory overrides through the run entry points
@@ -96,6 +96,25 @@ Confirm that reading is intended and state it in the docstrings, because the
 alternative — an explicit parent argument outranking the child's env var — is
 also defensible and would be a behavior change worth calling out.
 
+### Decisions taken
+
+Confirmed at implementation time, superseding the recommendation above on the
+sub-question:
+
+- **Option A**, as recommended: the parent keyword goes on the helper that owns
+  the derivation.
+- **The parent argument outranks the child's env var** — the *alternative*
+  reading of the sub-question, not the one proposed above. Rationale: the point
+  of "argument beats environment" is that a programmatic caller is not silently
+  reconfigured by ambient environment, and keeping the child env var ahead would
+  only half-fix the bug — `run_norm("articles", downloads_dir=X)` would still
+  write somewhere unexpected whenever `OJS_ARTICLES_DIR` happened to be set in
+  the caller's `.env`, which is the very surprise this plan calls a bug. The
+  resulting rule is one rule rather than two: anything the caller passes beats
+  anything in the environment. The child env vars still apply whenever no
+  directory argument reaches the helper — every CLI invocation, since the CLI
+  resolves directories from the environment only.
+
 ### Implementation order
 
 1. Add the parent keyword to `articles_dir`, `reviews_dir`, and `files_dir` in
@@ -128,3 +147,26 @@ also defensible and would be a behavior change worth calling out.
   environment only, and that is deliberate — this plan does not change it.
 - Renaming or consolidating the `OJS_*_DIR` env vars, or changing any default
   path. The precedence bug is fixable without touching either.
+
+## Log
+
+- Applied Option A with parent-argument-wins precedence (see *Decisions taken*).
+- `ReportSpec.out_dir` could not keep its `Callable[[Path | str | None], Path]`
+  annotation: a `Callable` alias cannot express a keyword-only parameter, and
+  that parameter is the whole point of the change. Replaced it with an
+  `OutDirResolver` `Protocol` in `ojs/website/run.py`, exported alongside
+  `ReportSpec`.
+- Both call sites pass the **raw** parent argument, not the parent they already
+  resolved. Passing the resolved path would mean the child's env var could never
+  win, since the parent is never `None` after resolution — the child env var
+  would be dead code rather than the no-argument fallback it is meant to be.
+- Step 3 placed the helper unit tests in `tests/test_ojs.py`; they went into
+  `tests/test_run.py` instead, which is where every existing `ojs.paths` test
+  lives (`PATH_CASES`, `clean_path_env`, `test_nested_defaults_follow_their_parent`).
+  The new `DERIVED_PATH_CASES` table sits directly below them and reuses the
+  same fixture.
+- `ojs.api.run.run_norm` needed no change: it already derives its default output
+  directory from the `source_dir` it resolved, rather than calling a helper with
+  no argument. The bug was confined to the two call sites the plan names.
+- Full suite: 182 passed, 92% coverage (86% floor). `ruff check`,
+  `ruff format --check`, and `pyrefly check` all clean.

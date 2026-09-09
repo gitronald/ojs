@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Fix directory overrides being silently ignored by the directories derived from them: a library caller passing `downloads_dir` to `ojs.website.run.run_norm` (or `api_dir` to `ojs.api.run.run_download`) read from the override but wrote the normalized tables and downloaded artifacts to the default location instead. `ojs.paths.articles_dir` and `reviews_dir` gain a keyword-only `downloads` argument and `files_dir` a keyword-only `api` argument, which the run entry points now pass through; the additions are backward compatible. A parent passed as an argument counts as an explicit argument and so outranks the child's own `OJS_ARTICLES_DIR`/`OJS_REVIEWS_DIR`/`OJS_FILES_DIR` — those still apply whenever no directory argument is given, which includes every CLI invocation. CLI behavior is unchanged.
+
 ## [0.9.0] - 2026-09-08
 
 - Add importable run entry points so the pipelines can be driven in-process instead of only through the console script: `ojs.api.run` (`run_fetch`, `run_download`, `run_norm`) and `ojs.website.run` (`run_report_fetch`, `run_norm`). Apart from the website entry points' leading `report` argument, every argument is keyword-only, with locations and credentials falling back to the environment; each returns a result object (`FetchResult`, `DownloadResult`, `NormResult`) carrying the counts the commands print.

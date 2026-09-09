@@ -322,7 +322,13 @@ Three conventions make these usable from another codebase:
   defaults the CLI uses. Pass `base_url`, `api_key`, `out_dir`, and friends
   explicitly to bypass `.env` entirely. `ojs.paths` exposes the same directory
   resolution (`api_dir()`, `articles_dir()`, …) so a caller can ask where output
-  lands rather than reconstructing the defaults.
+  lands rather than reconstructing the defaults. An override reaches the
+  directories *derived* from it, so `run_norm("articles",
+  downloads_dir="custom")` writes its tables to `custom/articles` rather than to
+  `$OJS_ARTICLES_DIR` — likewise `reviews_dir` from `downloads_dir`, and
+  `files_dir` from `api_dir`. The rule is one rule in both directions: anything
+  the caller passes beats anything in the environment, and the `OJS_*_DIR` vars
+  apply whenever no directory argument is given (as in every CLI invocation).
 - **Results, not printed lines.** `run_fetch` returns a `FetchResult` (per-dataset
   `fetched`/`total` counts, whether stats succeeded, whether the run was
   incremental, the output directory); `run_norm` returns the table names and row
