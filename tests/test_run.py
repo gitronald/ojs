@@ -83,16 +83,27 @@ def test_library_is_quiet_without_a_handler(tmp_path, capsys):
     from ojs.website.reviews.schemas import REVIEW_TABLES
 
     ojs_logger = logging.getLogger("ojs")
+    child = logging.getLogger("ojs.schema")
+    child_enabled_before = child.isEnabledFor(logging.INFO)
     saved_handlers, saved_level = ojs_logger.handlers[:], ojs_logger.level
     ojs_logger.handlers = [logging.NullHandler()]
     ojs_logger.setLevel(logging.NOTSET)
     try:
         write_schema_docs(REVIEW_TABLES, tmp_path / "table_schemas.csv")
     finally:
-        ojs_logger.handlers, ojs_logger.level = saved_handlers, saved_level
+        ojs_logger.handlers = saved_handlers
+        # setLevel, not `.level = ...`: only setLevel clears the per-logger
+        # effective-level cache. A bare assignment leaves every `ojs.*` child
+        # logger holding the `isEnabledFor(INFO) -> False` answer it cached
+        # while this test had the parent at NOTSET, which would silently
+        # swallow INFO records in any later test in the session.
+        ojs_logger.setLevel(saved_level)
 
     assert capsys.readouterr().out == ""
     assert (tmp_path / "table_schemas.csv").exists()  # the work still happened
+    # Probing the library must leave the rest of the session where it found it:
+    # the child logger answers about INFO exactly as it did before.
+    assert child.isEnabledFor(logging.INFO) == child_enabled_before
 
 
 # --- api run_norm -------------------------------------------------------------
@@ -233,6 +244,136 @@ def fake_client(monkeypatch):
     return server
 
 
+@pytest.fixture
+def fake_stats(monkeypatch):
+    """Stub the three stats endpoints with one published submission's series."""
+    from ojs.api import client as client_mod
+
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_publication_stats",
+        lambda *a, **k: [{"abstractViews": 7, "publication": {"id": 11}}],
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_view_timelines",
+        lambda *a, interval="day", **k: [
+            {"_submission_id": 11, "interval": interval, "date": d, "kind": "abstract"}
+            for d in ("2024-01-01", "2024-01-02")
+        ],
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_view_timeline_totals",
+        lambda *a, interval="day", **k: [
+            {"interval": interval, "date": "2024-01-01", "kind": "abstract"}
+        ],
+    )
+
+
+def test_run_fetch_stats_success_populates_counts_and_dumps(
+    tmp_path, fake_client, fake_stats
+):
+    result = api_run.run_fetch(
+        base_url="http://base", api_key="key", out_dir=tmp_path, stats=True
+    )
+
+    # The whole stats block succeeded, so every stats dataset reports a count.
+    assert result.stats_ok is True
+    assert result.publication_stats == api_run.DatasetCount(1, 1)
+    assert result.views_timeline == api_run.DatasetCount(2, 2)
+    assert result.views_timeline_totals == api_run.DatasetCount(1, 1)
+    # The counts describe what landed on disk.
+    for name, count in (
+        ("publication_stats", 1),
+        ("views_timeline", 2),
+        ("views_timeline_totals", 1),
+    ):
+        assert len(json.loads((tmp_path / f"{name}.json").read_text())) == count
+
+
+def test_run_fetch_stats_success_advances_the_stats_watermark(
+    tmp_path, fake_client, fake_stats
+):
+    api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=True,
+        incremental=True,
+    )
+    state = json.loads((tmp_path / "sync_state.json").read_text())
+    # A successful stats pull moves the window anchor forward with the run,
+    # rather than carrying the prior (here absent) mark.
+    assert state["stats_last_sync"] == state["last_sync"]
+
+
+def test_run_fetch_full_writes_and_resets_sync_state(tmp_path, fake_client):
+    # Seed a stale state naming a submission the server no longer reports.
+    (tmp_path).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "sync_state.json").write_text(
+        json.dumps(
+            {"last_sync": "2020-01-01T00:00:00", "submission_modified": {"99": 1}}
+        )
+    )
+
+    result = api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=False,
+        full=True,
+    )
+
+    assert result.incremental is False  # --full is always a complete pull
+    assert result.sync_state_written is True
+    assert result.tracked_submissions == 2
+    state = json.loads((tmp_path / "sync_state.json").read_text())
+    # Rewritten from scratch: the stale id is gone, not merged forward.
+    assert set(state["submission_modified"]) == {"1", "2"}
+
+
+def test_run_fetch_files_pulls_and_counts_submission_files(
+    tmp_path, fake_client, monkeypatch
+):
+    from ojs.api import client as client_mod
+
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_all_submission_files",
+        lambda base, key, submissions, **k: [
+            {"id": 900 + s["id"], "_submission_id": s["id"]} for s in submissions
+        ],
+    )
+
+    result = api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=False,
+        files=True,
+    )
+
+    assert result.submission_files == api_run.DatasetCount(2, 2)
+    stored = json.loads((tmp_path / "submission_files.json").read_text())
+    assert sorted(f["id"] for f in stored) == [901, 902]
+
+
+def test_run_fetch_rejects_an_unknown_stats_interval(tmp_path):
+    # The CLI's enum catches this on its side; a direct caller gets the same
+    # typed error instead of the API rejecting the value mid-fetch.
+    with pytest.raises(OptionError) as exc:
+        api_run.run_fetch(
+            base_url="http://base",
+            api_key="key",
+            out_dir=tmp_path,
+            stats_interval="days",
+        )
+    assert "day" in str(exc.value) and "month" in str(exc.value)
+    # Rejected before any fetch, so nothing was written.
+    assert not (tmp_path / "submissions.json").exists()
+
+
 def test_run_fetch_full_pull_counts_and_no_sync_state(tmp_path, fake_client):
     result = api_run.run_fetch(
         base_url="http://base", api_key="key", out_dir=tmp_path, stats=False
@@ -364,7 +505,7 @@ def test_run_fetch_rejects_malformed_dates(tmp_path):
 def test_run_download_missing_submissions_dump_raises(tmp_path):
     with pytest.raises(MissingDataError) as exc:
         api_run.run_download(
-            base_url="http://base", api_key="key", out_dir=tmp_path, fetch=False
+            base_url="http://base", api_key="key", api_dir=tmp_path, fetch=False
         )
     assert "submissions.json" in str(exc.value)
 
@@ -374,7 +515,7 @@ def test_run_download_rejects_unknown_file_type(tmp_path):
         api_run.run_download(
             base_url="http://base",
             api_key="key",
-            out_dir=tmp_path,
+            api_dir=tmp_path,
             file_type="nonsense",
         )
     # The message lists what would have worked.
@@ -426,7 +567,7 @@ def test_run_download_selects_and_records(tmp_path, monkeypatch):
     result = api_run.run_download(
         base_url="http://base",
         api_key="key",
-        out_dir=api_dir,
+        api_dir=api_dir,
         dest_dir=tmp_path / "files",
         submission_ids=[5],
         fetch=False,
@@ -437,6 +578,86 @@ def test_run_download_selects_and_records(tmp_path, monkeypatch):
     assert [r["file_id"] for r in result.downloaded] == [900]
     assert result.failed == []
     assert (tmp_path / "files" / "5/production_ready/900_final.pdf").exists()
+
+
+def test_run_download_records_inaccessible_files(tmp_path, monkeypatch):
+    """A 403 file lands in DownloadResult.failed and in skipped.json."""
+    import httpx
+
+    from ojs.api import files as files_mod
+
+    class _Resp:
+        content = b"PDFDATA"
+
+        def raise_for_status(self):
+            pass
+
+    class _Forbidden:
+        def raise_for_status(self):
+            request = httpx.Request("GET", "http://base/files/901")
+            raise httpx.HTTPStatusError(
+                "forbidden",
+                request=request,
+                response=httpx.Response(403, request=request),
+            )
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, params=None):
+            # The API refuses one of the two files; the run must carry on.
+            return _Forbidden() if url.endswith("901") else _Resp()
+
+    monkeypatch.setattr(files_mod, "_http_client", _Client)
+
+    api_dir = tmp_path / "api"
+    api_dir.mkdir()
+    (api_dir / "submission_files.json").write_text(
+        json.dumps(
+            [
+                {
+                    "_submission_id": 5,
+                    "id": 100,
+                    "fileId": 900,
+                    "fileStage": 11,
+                    "name": "ok.pdf",
+                    "url": "http://base/files/900",
+                    "revisions": [],
+                },
+                {
+                    "_submission_id": 5,
+                    "id": 101,
+                    "fileId": 901,
+                    "fileStage": 11,
+                    "name": "denied.pdf",
+                    "url": "http://base/files/901",
+                    "revisions": [],
+                },
+            ]
+        )
+    )
+
+    result = api_run.run_download(
+        base_url="http://base",
+        api_key="key",
+        api_dir=api_dir,
+        dest_dir=tmp_path / "files",
+        submission_ids=[5],
+        fetch=False,
+    )
+
+    assert result.selected == 2
+    assert [r["file_id"] for r in result.downloaded] == [900]
+    assert [r["file_id"] for r in result.failed] == [901]
+    assert result.failed[0]["status"] == 403
+    # The skip history is persisted, so it survives the run instead of
+    # scrolling past in the log.
+    skipped = json.loads((tmp_path / "files" / "skipped.json").read_text())
+    assert [r["file_id"] for r in skipped] == [901]
 
 
 # --- website run --------------------------------------------------------------

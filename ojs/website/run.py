@@ -48,7 +48,13 @@ class ReportSpec:
 
 @dataclass(frozen=True)
 class NormResult:
-    """Which export was normalized, where it went, and each table's row count."""
+    """Which export was normalized, where it went, and each table's row count.
+
+    Distinct from :class:`ojs.api.run.NormResult`, which has no ``input_file``
+    (the API pipeline normalizes a directory of dumps, not one export). The two
+    share a name, so import the modules rather than the classes when a caller
+    drives both pipelines.
+    """
 
     input_file: Path
     out_dir: Path

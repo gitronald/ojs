@@ -55,14 +55,20 @@ logger = logging.getLogger(__name__)
 # The JSON dumps `api norm` requires; a missing one means `api fetch` never ran.
 REQUIRED_NORM_FILES = ("submissions", "publications", "_submissions", "users")
 
-# The JSON dumps `api norm` folds in when present, keyed by the `normalize_api`
-# argument they feed.
-OPTIONAL_NORM_FILES = {
-    "publication_stats": "publication_stats",
-    "views_timeline": "views_timeline",
-    "views_timeline_totals": "views_timeline_totals",
-    "submission_files": "submission_files",
-}
+# The JSON dumps `api norm` folds in when present. Each name is both the dump's
+# filename stem and the `normalize_api` keyword argument it feeds, so `run_norm`
+# loads them by iterating this tuple -- adding a dump here is the whole change.
+OPTIONAL_NORM_FILES = (
+    "publication_stats",
+    "views_timeline",
+    "views_timeline_totals",
+    "submission_files",
+)
+
+# Timeline granularities the OJS stats endpoints accept. The CLI constrains
+# `--stats-interval` with its own enum; this is the library-side guard, so a
+# direct caller gets an OptionError instead of an HTTP error from the server.
+STATS_INTERVALS = ("day", "month")
 
 
 @dataclass(frozen=True)
@@ -153,8 +159,9 @@ def run_fetch(
     Raises:
         ConfigError: neither the arguments nor the environment supply
             ``base_url``/``api_key``.
-        OptionError: ``full`` combined with ``incremental``/``since``, or a date
-            argument that is not ``YYYY-MM-DD``.
+        OptionError: ``full`` combined with ``incremental``/``since``, a date
+            argument that is not ``YYYY-MM-DD``, or a ``stats_interval`` outside
+            :data:`STATS_INTERVALS`.
     """
     resolved_base_url, resolved_api_key = _require_credentials(base_url, api_key)
 
@@ -173,6 +180,15 @@ def run_fetch(
                 date.fromisoformat(value)
             except ValueError as e:
                 raise OptionError(f"{flag} must be YYYY-MM-DD") from e
+
+    # The CLI's enum rejects a bad interval before the call, so this guard only
+    # ever fires for a direct caller -- who gets a typed error here instead of
+    # the API's rejection surfacing as a raw HTTP error mid-fetch.
+    if stats and stats_interval not in STATS_INTERVALS:
+        choices = ", ".join(STATS_INTERVALS)
+        raise OptionError(
+            f"unknown stats interval {stats_interval!r}; expected one of: {choices}"
+        )
 
     api_out_dir = paths.api_dir(out_dir)
     api_out_dir.mkdir(parents=True, exist_ok=True)
@@ -400,7 +416,7 @@ def run_download(
     *,
     base_url: str | None = None,
     api_key: str | None = None,
-    out_dir: Path | str | None = None,
+    api_dir: Path | str | None = None,
     dest_dir: Path | str | None = None,
     submission_ids: list[int] | None = None,
     file_type: str = "all",
@@ -416,6 +432,11 @@ def run_download(
     manifest records every downloaded file by its immutable ``fileId``, so reruns
     skip artifacts already on disk -- new uploads and revisions are picked up
     incrementally.
+
+    ``api_dir`` is the JSON dump directory this reads (the same one
+    :func:`run_fetch` writes and :func:`run_norm` reads); ``dest_dir`` is where
+    the artifacts land. The two are named for what they hold rather than both
+    being ``out_dir``, so redirecting the downloads is unambiguous.
 
     Raises:
         ConfigError: neither the arguments nor the environment supply
@@ -435,7 +456,7 @@ def run_download(
             f"unknown file type {file_type!r}; expected one of: {choices}"
         )
 
-    api_out_dir = paths.api_dir(out_dir)
+    api_out_dir = paths.api_dir(api_dir)
     files_json = api_out_dir / "submission_files.json"
 
     # Resolve the target submissions. Explicit ids are fetched as given; with no
@@ -572,16 +593,15 @@ def run_norm(
         path = source_dir / f"{name}.json"
         return json.loads(path.read_text()) if path.exists() else None
 
+    optional = {name: _load_optional(name) for name in OPTIONAL_NORM_FILES}
+
     tables = normalize_api(
         required["submissions"],
         required["publications"],
         required["_submissions"],
         required["users"],
         output_dir,
-        publication_stats=_load_optional("publication_stats"),
-        views_timeline=_load_optional("views_timeline"),
-        views_timeline_totals=_load_optional("views_timeline_totals"),
-        submission_files=_load_optional("submission_files"),
+        **optional,
     )
     return NormResult(
         out_dir=output_dir, rows={name: df.height for name, df in tables.items()}
