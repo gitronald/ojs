@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-09
+
 - Sync the development tooling with the project template: bump the ruff pre-commit hook to v0.16.6, the `setup-uv` action to v10.0.1 in both workflows, and the `pytest` dev floor to 9.0.3.
 - Point Dependabot version updates at the `dev` branch so its PRs open against the development branch rather than `main`.
 - Pin the test matrix interpreter explicitly on the `uv sync` step so every matrix cell tests the Python version it names.

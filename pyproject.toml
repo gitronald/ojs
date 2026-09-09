@@ -1,6 +1,6 @@
 [project]
 name = "ojs"
-version = "0.9.2a0"
+version = "0.9.2"
 description = "Tools for working with the Open Journal Systems (OJS) API."
 authors = [
     {name = "gitronald", email = "gitronald@users.noreply.github.com"}
