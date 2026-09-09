@@ -2,7 +2,7 @@
 
 import logging
 
-__version__ = "0.8.4a0"
+__version__ = "0.9.0"
 
 # Progress and warnings go to the `ojs` logger, never to print(): a library must
 # not write to a caller's console uninvited. The NullHandler keeps the package
