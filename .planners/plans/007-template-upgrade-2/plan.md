@@ -28,18 +28,16 @@ published to PyPI) — unchanged from plan 004.
 | `.pre-commit-config.yaml` | merge: ruff-pre-commit rev v0.16.5 -> v0.16.6, but keep the repo's `ruff-check` hook id (the modern name; the template still uses the deprecated `ruff` alias) |
 | `.python-version` | identical (3.14) |
 | `.gitignore` | template entries all present, plus the repo-specific `/data/`; no change |
-| `.github/workflows/test.yml`, `publish.yml` | byte-identical to the template; no change |
-| `.github/dependabot.yml` | merge: add the config-location header comment and `target-branch: dev` on both ecosystems (`origin/dev` exists). Inert until it reaches `main` — Dependabot reads config from the default branch |
+| `.github/workflows/test.yml` | sync: `astral-sh/setup-uv` v9.0.0 -> v10.0.1, and restate the matrix interpreter as `--python` on `uv sync` alongside the job-level `UV_PYTHON`, with the template's comment recording that the redundancy is deliberate |
+| `.github/workflows/publish.yml` | sync: `astral-sh/setup-uv` v9.0.0 -> v10.0.1 |
+| `.github/dependabot.yml` | merge: adopt the template's trimmed header (guide link plus the default-branch caveat) and `target-branch: dev` on both ecosystems (`origin/dev` exists). Inert until it reaches `main` — Dependabot reads config from the default branch |
 | Dependabot repo toggles | already correct: alerts on (204), security updates off (`enabled:false`); no change |
-| `.claude/hooks/lint-typecheck.sh` | sync: restore the template's comment explaining why the non-mutating `ruff format --check` mirrors CI. Script body already matches. Gitignored: applied on disk in the main checkout |
-| `.claude/settings.json` | keep the repo's copy: it is the template's file minus `Bash(git push:*)` in `ask`, a deliberate loosening. Nothing else diverges |
-| `.claude/CLAUDE.md` | keep content; fix the stale "Run both checks" wording under `## Before finishing a task` (three commands are listed). `## Development` bullets are current. On disk only (gitignored) |
 | `.planners/` | present |
 | `ojs/`, `tests/`, `README.md`, `CHANGELOG.md` | never |
 
 **Deliberate deviations carried forward:** SHA-pinned workflow actions (now the
-template default too), the repo's `/data/` gitignore entry, the `ruff-check`
-hook id, and the `git push` permission loosening.
+template default too), the repo's `/data/` gitignore entry, and the `ruff-check`
+hook id.
 
 **Verification:** `uv sync --all-groups`, `uv run ruff check .`,
 `uv run ruff format --check .`, `uv run pyrefly check`,
@@ -47,26 +45,23 @@ hook id, and the `git push` permission loosening.
 
 ## Log
 
-- 2026-09-09: Walked the sync matrix against the current `template/`. Most rows
-  were already identical — `test.yml` and `publish.yml` are byte-for-byte the
-  template's, `.python-version`, `.gitignore`, and every `pyproject.toml`
-  tooling section matched, `.planners/` is present, and the Dependabot repo
-  toggles were already alerts-on / security-updates-off. Applied: ruff-pre-commit
-  v0.16.5 -> v0.16.6, `pytest>=9.0.2` -> `>=9.0.3` (with the lock refreshed),
-  and the `dependabot.yml` header comment plus `target-branch: dev` on both
-  ecosystems.
+- 2026-09-09: Walked the sync matrix against the current `template/`. Several
+  rows were already identical — `.python-version`, `.gitignore`, and every
+  `pyproject.toml` tooling section matched, `.planners/` is present, and the
+  Dependabot repo toggles were already alerts-on / security-updates-off.
+  Applied: ruff-pre-commit v0.16.5 -> v0.16.6, `pytest>=9.0.2` -> `>=9.0.3`
+  (with the lock refreshed), and the `dependabot.yml` header plus
+  `target-branch: dev` on both ecosystems.
 - 2026-09-09: Divergence decisions. Kept the repo's `ruff-check` hook id over
   the template's deprecated `ruff` alias — the repo is ahead there, so only the
-  `rev` was carried forward. Kept `.claude/settings.json` as-is: its sole
-  difference from the template is dropping `Bash(git push:*)` from `ask`, a
-  deliberate loosening, and nothing else in the file diverged.
-- 2026-09-09: Gitignored `.claude/` payload applied on disk in the main
-  checkout, not on this branch: `hooks/lint-typecheck.sh` regained the
-  template's comment explaining why the non-mutating `ruff format --check`
-  mirrors CI (script body was already current), and `CLAUDE.md`'s
-  `## Before finishing a task` intro was corrected from "Run both checks" to
-  "Run all three checks" (it lists three commands). The `## Development`
-  bullets were already current.
+  `rev` was carried forward.
+- 2026-09-09: Re-read `template/` after it moved on mid-upgrade and picked up
+  the newer rows: `astral-sh/setup-uv` v9.0.0 -> v10.0.1 in both workflows
+  (v10 only disables `enable-cache: auto` for `pull_request_target`,
+  `workflow_run`, and `release`, none of which either workflow triggers on), the
+  deliberate `--python ${{ matrix.python-version }}` restatement on `uv sync` in
+  `test.yml`, and the trimmed `dependabot.yml` header that leaves the rationale
+  in the template's automation guide.
 - 2026-09-09: Verification green in the worktree — `ruff check`,
   `ruff format --check`, `pyrefly check` (0 errors),
   `pre-commit run --all-files`, and `pytest` (182 passed, 91.98% coverage
