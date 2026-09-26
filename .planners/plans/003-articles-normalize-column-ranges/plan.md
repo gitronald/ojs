@@ -1,10 +1,10 @@
 ---
 id: 3
 slug: articles-normalize-column-ranges
-status: active
+status: done
 branch: feature/articles-normalize-column-ranges
 created: 2026-07-08T18:39:28-07:00
-concluded:
+concluded: 2026-09-25T23:43:53-07:00
 pr: https://github.com/gitronald/ojs/pull/40
 ---
 
@@ -77,3 +77,31 @@ widens to cover them.
 - Tests: an end-to-end fixture with 16 authors, 5 editors, and decisions 10 and
   11 (including a date-only slot), plus unit tests for `entity_numbers`,
   `decision_slots`, and the uncapped claimed-column set.
+- 2026-09-25: Review follow-up. The close-gate review (medium) found no
+  correctness defects. Two maintenance findings were actioned in one commit:
+  `_claimed_columns` had re-implemented the entity-header-plus-schema test that
+  `entity_numbers` already encoded, and `_ENTITY_HEADER` also partially matched
+  a decision header (`Editor Decision 11  (Editor 1)` parses as base
+  `Editor Decision 11 `), relying on the schema lookup to filter it. Both now go
+  through a single `_entity_index` helper that excludes decision headers up
+  front, with `test_entity_numbers_excludes_decision_headers_up_front` as the
+  regression test. Conscious no-op: the submissions and authors extractors each
+  scan the headers once for author indices; the inputs are identical so they
+  cannot disagree, and the cost is negligible.
+
+## Retrospective
+
+- The stub plan called for deriving ranges from the headers, and that is what
+  shipped; the only refinement was pairing decision/date headers into explicit
+  slots instead of probing each (editor, decision) pair for existence.
+- Having two real exports, one within the old caps and one past them, made the
+  verification decisive: byte-identical output for the old rows proved the
+  change was purely additive, and the wide export proved the drop was gone.
+- The reported symptom (42 unmapped columns) was already the right signal; the
+  fix was to let the pipeline widen rather than to quiet the warning. Surfacing
+  unmapped columns instead of dropping silently paid for itself here.
+- Blocking the plan on representative data, rather than guessing at bigger
+  caps, avoided shipping a second arbitrary limit.
+- Sharing the header-matching rule between extraction and the unmapped-column
+  check should have been part of the first cut; the review caught the
+  duplication before it could drift.
