@@ -28,6 +28,7 @@ from ojs.api.sync import (
     upsert_json_list,
     write_json,
 )
+from ojs.errors import HttpError
 from ojs.utils import strip_html
 
 
@@ -348,12 +349,12 @@ def test_request_with_retry_redacts_api_token_in_error():
                 response=response,
             )
 
-    with pytest.raises(httpx.HTTPStatusError) as exc:
+    with pytest.raises(HttpError) as exc:
         _request_with_retry(_C(), "http://base/api/v1/x", {"apiToken": "SECRET123"})
     assert "SECRET123" not in str(exc.value)
     assert "[REDACTED]" in str(exc.value)
     # The status stays inspectable, so 403/404 skip handling is unaffected.
-    assert exc.value.response.status_code == 500
+    assert exc.value.status_code == 500
 
 
 def test_fetch_view_timelines_tags_points(monkeypatch):
@@ -626,6 +627,7 @@ def test_load_sync_state_missing_returns_empty(tmp_path):
         "last_sync": None,
         "stats_last_sync": None,
         "submission_modified": {},
+        "files_modified": {},
     }
 
 
@@ -636,6 +638,7 @@ def test_load_sync_state_corrupt_returns_empty(tmp_path):
         "last_sync": None,
         "stats_last_sync": None,
         "submission_modified": {},
+        "files_modified": {},
     }
 
 
@@ -654,6 +657,7 @@ def test_save_then_load_roundtrip(tmp_path):
         "last_sync": "2026-05-28T13:09:38-07:00",
         "stats_last_sync": "2026-05-20T00:00:00-07:00",
         "submission_modified": {"1": "2024-06-10 12:00:00"},
+        "files_modified": {"1": "2024-06-10 12:00:00"},
     }
     save_sync_state(path, state)
     assert load_sync_state(path) == state
@@ -1215,9 +1219,7 @@ def test_api_fetch_skipped_stats_preserves_stats_window(tmp_path, monkeypatch):
     monkeypatch.setattr(client_mod, "fetch_users", lambda *a, **k: [])
 
     def forbidden_stats(*a, **k):
-        request = httpx.Request("GET", "http://base/api/v1/stats/publications")
-        response = httpx.Response(403, request=request)
-        raise httpx.HTTPStatusError("forbidden", request=request, response=response)
+        raise HttpError("forbidden", status_code=403, reason="Forbidden")
 
     monkeypatch.setattr(client_mod, "fetch_publication_stats", forbidden_stats)
 
@@ -1617,7 +1619,7 @@ def test_download_files_persists_records_before_propagating_error(
             "revisions": [],
         },
     ]
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(HttpError):
         files_mod.download_files(
             files,
             api_key="key",
@@ -1989,3 +1991,327 @@ def test_api_download_no_fetch_partial_missing_warns(tmp_path, monkeypatch):
     )
     assert r.exit_code == 0, r.output
     assert "999" in r.output  # warned about the missing id
+
+
+# --- Retry, error mapping, and pagination guards ------------------------------
+
+
+class _ScriptedClient:
+    """Plays a script of outcomes per GET: an exception to raise, or a payload."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.calls = 0
+
+    def get(self, url, params=None):
+        self.calls += 1
+        outcome = self.script.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        if isinstance(outcome, int):
+            request = httpx.Request("GET", f"{url}?apiToken=SECRET")
+            response = httpx.Response(outcome, request=request)
+            response.raise_for_status()
+        return _FakeResponse(outcome)
+
+
+def test_request_with_retry_recovers_from_a_transient_transport_error():
+    from ojs.api.client import _request_with_retry
+
+    client = _ScriptedClient([httpx.ConnectTimeout("slow"), {"ok": True}])
+    assert _request_with_retry(client, "http://base/x", {}).json() == {"ok": True}
+    assert client.calls == 2
+
+
+def test_request_with_retry_exhausted_transport_error_raises_http_error():
+    from ojs.api.client import MAX_RETRIES, _request_with_retry
+    from ojs.errors import OjsError
+
+    client = _ScriptedClient([httpx.ConnectError("refused")] * MAX_RETRIES)
+    with pytest.raises(HttpError) as exc:
+        _request_with_retry(client, "http://base/x?apiToken=SECRET", {})
+    assert client.calls == MAX_RETRIES
+    assert isinstance(exc.value, OjsError)
+    assert exc.value.status_code is None
+    assert "ConnectError" in str(exc.value)
+    assert "SECRET" not in str(exc.value)
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_request_with_retry_retries_transient_statuses(status):
+    from ojs.api.client import _request_with_retry
+
+    client = _ScriptedClient([status, {"ok": True}])
+    assert _request_with_retry(client, "http://base/x", {}).json() == {"ok": True}
+    assert client.calls == 2
+
+
+def test_request_with_retry_does_not_retry_a_client_error():
+    from ojs.api.client import _request_with_retry
+
+    client = _ScriptedClient([404])
+    with pytest.raises(HttpError) as exc:
+        _request_with_retry(client, "http://base/x", {})
+    assert client.calls == 1
+    assert exc.value.status_code == 404
+
+
+def test_request_with_retry_honors_retry_after(monkeypatch):
+    from ojs.api import client as client_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(client_mod.time, "sleep", sleeps.append)
+
+    class _RateLimited:
+        calls = 0
+
+        def get(self, url, params=None):
+            self.calls += 1
+            if self.calls == 1:
+                request = httpx.Request("GET", url)
+                response = httpx.Response(
+                    429, request=request, headers={"Retry-After": "30"}
+                )
+                response.raise_for_status()
+            return _FakeResponse({"ok": True})
+
+    client_mod._request_with_retry(_RateLimited(), "http://base/x", {})
+    assert sleeps == [30]
+
+    # An absurd header is capped rather than stalling the run.
+    monkeypatch.setattr(client_mod, "MAX_RETRY_AFTER", 10)
+    sleeps.clear()
+    client_mod._request_with_retry(_RateLimited(), "http://base/x", {})
+    assert sleeps == [10]
+
+
+def test_paginate_stops_when_a_bare_array_endpoint_ignores_offset(caplog):
+    # The server returns the same full page for every offset; the walk must end
+    # instead of looping forever and piling up duplicates.
+    page = [{"id": i} for i in range(PAGE_SIZE)]
+    client = _FakeClient([page, page, page])
+    items = _paginate(client, "http://base/api/v1/stats/publications", {})
+    assert items == page
+    assert len(client.calls) == 2
+    assert "WARNING" in caplog.text
+
+
+# --- Current publication selection --------------------------------------------
+
+
+def test_current_publication_prefers_current_publication_id():
+    from ojs.api.client import current_publication
+
+    sub = {"currentPublicationId": 2, "publications": [{"id": 1}, {"id": 2}]}
+    assert current_publication(sub) == {"id": 2}
+    # Absent or unmatched id falls back to the first entry; no publications -> {}.
+    assert current_publication({"publications": [{"id": 1}, {"id": 2}]}) == {"id": 1}
+    assert current_publication({"currentPublicationId": 9, "publications": []}) == {}
+
+
+def test_fetch_all_publications_fetches_the_current_version(monkeypatch):
+    from contextlib import nullcontext
+
+    from ojs.api import client as client_mod
+
+    fetched: list[int] = []
+    monkeypatch.setattr(client_mod, "_http_client", lambda: nullcontext(None))
+    monkeypatch.setattr(
+        client_mod,
+        "_fetch_publication",
+        lambda client, base, key, sid, pid: fetched.append(pid) or {"id": pid},
+    )
+    subs = [
+        {"id": 5, "currentPublicationId": 51, "publications": [{"id": 50}, {"id": 51}]}
+    ]
+    client_mod.fetch_all_publications("http://base", "key", subs)
+    assert fetched == [51]
+
+
+def test_normalize_submissions_reads_the_current_publication_summary():
+    subs = [
+        {
+            "id": 1,
+            "currentPublicationId": 12,
+            "publications": [
+                {"id": 11, "fullTitle": {"en_US": "Old title"}},
+                {"id": 12, "fullTitle": {"en_US": "New title"}},
+            ],
+        }
+    ]
+    df = normalize_submissions(subs, [])
+    assert df["title"].to_list() == ["New title"]
+
+
+def test_normalize_publications_warns_about_dropped_published_rows(caplog):
+    subs = [
+        {
+            "id": 1,
+            "statusLabel": "Published",
+            "publications": [{"id": 10, "datePublished": "2024-01-01"}],
+        }
+    ]
+    # The stored detail is not status 3, so the join has nothing to match.
+    pubs = [{"_submission_id": 1, "id": 10, "status": 1, "authors": []}]
+    df = normalize_publications(normalize_submissions(subs, pubs), pubs)
+    assert df.height == 0
+    assert "WARNING: 1 published submission(s)" in caplog.text
+
+
+def test_build_email_to_user_id_conflict_uses_the_warning_prefix(caplog):
+    _build_email_to_user_id(
+        [{"id": 1, "email": "d@x.org"}, {"id": 2, "email": "d@x.org"}]
+    )
+    assert "WARNING: email 'd@x.org'" in caplog.text
+
+
+# --- Per-submission file-metadata skips ---------------------------------------
+
+
+def test_fetch_all_submission_files_skips_an_inaccessible_submission(monkeypatch):
+    from contextlib import nullcontext
+
+    from ojs.api import client as client_mod
+
+    def fake_fetch(client, base, key, sid, **kwargs):
+        if sid == 2:
+            raise HttpError("forbidden", status_code=403, reason="Forbidden")
+        return [{"id": sid * 100, "_submission_id": sid}]
+
+    monkeypatch.setattr(client_mod, "_http_client", lambda: nullcontext(None))
+    monkeypatch.setattr(client_mod, "_fetch_submission_files", fake_fetch)
+    subs = [{"id": 1}, {"id": 2}, {"id": 3}]
+    files = client_mod.fetch_all_submission_files("http://base", "key", subs)
+    assert [f["id"] for f in files] == [100, 300]
+
+
+def test_fetch_all_submission_files_propagates_other_errors(monkeypatch):
+    from contextlib import nullcontext
+
+    from ojs.api import client as client_mod
+
+    def fake_fetch(client, base, key, sid, **kwargs):
+        raise HttpError("server error", status_code=500, reason="Server Error")
+
+    monkeypatch.setattr(client_mod, "_http_client", lambda: nullcontext(None))
+    monkeypatch.setattr(client_mod, "_fetch_submission_files", fake_fetch)
+    with pytest.raises(HttpError):
+        client_mod.fetch_all_submission_files("http://base", "key", [{"id": 1}])
+
+
+def test_download_files_never_leaves_a_truncated_file_after_a_crash(
+    monkeypatch, tmp_path
+):
+    # A renamed file whose write is interrupted must not leave partial bytes at
+    # the new path, or the next run would see the stale manifest record plus an
+    # existing file and skip it forever.
+    from ojs import fsutil
+    from ojs.api import files as files_mod
+
+    client = _ForbiddenForClient("/never", httpx.codes.FORBIDDEN)
+    monkeypatch.setattr(files_mod, "_http_client", lambda: client)
+
+    def crash(fd):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(fsutil.os, "fsync", crash)
+    stale = {900: {"file_id": 900, "path": "5/production_ready/900_old.pdf"}}
+    files = [
+        {
+            "_submission_id": 5,
+            "id": 100,
+            "fileId": 900,
+            "fileStage": 11,
+            "name": "new.pdf",
+            "url": "http://base/files/900",
+            "revisions": [],
+        }
+    ]
+    with pytest.raises(KeyboardInterrupt):
+        files_mod.download_files(
+            files, api_key="key", dest_dir=tmp_path, downloaded=stale
+        )
+    assert not (tmp_path / "5/production_ready/900_new.pdf").exists()
+
+
+# --- CLI: config loading and error mapping ------------------------------------
+
+
+def test_load_config_reads_cwd_env_then_fills_from_fallback(tmp_path, monkeypatch):
+    from ojs import cli
+
+    for var in ("OJS_TEST_A", "OJS_TEST_B", "OJS_TEST_C"):
+        monkeypatch.setenv(var, "sentinel")  # registers the var for restore
+        monkeypatch.delenv(var)
+    monkeypatch.setenv("OJS_TEST_C", "from-environment")
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".env").write_text("OJS_TEST_A=from-cwd\n")
+    fallback = tmp_path / "user.env"
+    fallback.write_text(
+        "OJS_TEST_A=from-fallback\nOJS_TEST_B=from-fallback\nOJS_TEST_C=from-fallback\n"
+    )
+    monkeypatch.setenv("OJS_CONFIG_PATH", str(fallback))
+    monkeypatch.chdir(project)
+
+    cli.load_config()
+
+    import os
+
+    # The CWD .env is found even though the ojs package lives elsewhere, and
+    # the fallback only fills gaps -- it never overrides.
+    assert os.environ["OJS_TEST_A"] == "from-cwd"
+    assert os.environ["OJS_TEST_B"] == "from-fallback"
+    assert os.environ["OJS_TEST_C"] == "from-environment"
+
+
+def test_api_fetch_http_error_reports_error_not_traceback(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from ojs import cli
+    from ojs.api import client as client_mod
+
+    _patch_api_env(tmp_path, monkeypatch)
+
+    def refused(*a, **k):
+        raise HttpError("Client error '403 Forbidden'", status_code=403)
+
+    monkeypatch.setattr(client_mod, "fetch_submissions", refused)
+    r = CliRunner().invoke(cli.app, ["api", "fetch"])
+    assert r.exit_code == 1
+    assert "Error: Client error '403 Forbidden'" in r.output
+    assert not isinstance(r.exception, HttpError)  # mapped, not propagated
+
+
+def test_api_norm_missing_dumps_exits_with_error(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from ojs import cli
+
+    _patch_api_env(tmp_path, monkeypatch)
+    r = CliRunner().invoke(cli.app, ["api", "norm"])
+    assert r.exit_code == 1
+    assert "Error:" in r.output
+    assert "submissions.json not found" in r.output
+
+
+@pytest.mark.parametrize(
+    ("group", "env_var", "rel"),
+    [
+        ("api", "OJS_API_DIR", "normalized/table_schemas.csv"),
+        ("articles", "OJS_ARTICLES_DIR", "table_schemas.csv"),
+        ("reviews", "OJS_REVIEWS_DIR", "table_schemas.csv"),
+    ],
+)
+def test_schema_commands_write_table_docs(tmp_path, monkeypatch, group, env_var, rel):
+    from typer.testing import CliRunner
+
+    from ojs import cli
+
+    monkeypatch.setenv(env_var, str(tmp_path))
+    r = CliRunner().invoke(cli.app, [group, "schema"])
+    assert r.exit_code == 0, r.output
+    docs = pl.read_csv(tmp_path / rel)
+    assert docs.height > 0
+    assert "in_output" in docs.columns

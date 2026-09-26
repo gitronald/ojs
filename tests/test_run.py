@@ -996,3 +996,141 @@ def test_website_run_report_fetch_writes_dated_csv(tmp_path, monkeypatch):
     assert dest.read_text() == "Submission ID\n1\n"
     # A relative report URL is resolved against the base URL.
     assert written["report_url"] == "https://host/index.php/j/report/articles"
+
+
+# --- Review-fix regressions ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("resolve", "env_var", "default"), PATH_CASES)
+def test_path_empty_env_var_falls_back_to_default(
+    clean_path_env, monkeypatch, resolve, env_var, default
+):
+    # A blank `OJS_API_DIR=` line loads as "", which must not mean the CWD.
+    monkeypatch.setenv(env_var, "")
+    assert resolve() == Path(default)
+
+
+def test_require_credentials_strips_a_trailing_slash(monkeypatch):
+    monkeypatch.setenv("OJS_BASE_URL", "https://example.org/index.php/j/")
+    monkeypatch.setenv("OJS_API_KEY", "key")
+    assert api_run._require_credentials(None, None) == (
+        "https://example.org/index.php/j",
+        "key",
+    )
+    assert api_run._require_credentials("http://base//", "k")[0] == "http://base"
+
+
+@pytest.mark.parametrize("value", ["20260101", "2026-W01-1", "2026-1-01"])
+def test_run_fetch_rejects_non_canonical_dates(tmp_path, value):
+    # fromisoformat accepts these, but a compact `since` compares lexically below
+    # every `Y-m-d H:i:s` timestamp and would silently fetch nothing.
+    with pytest.raises(OptionError, match="--since"):
+        api_run.run_fetch(
+            base_url="http://base", api_key="key", out_dir=tmp_path, since=value
+        )
+
+
+def test_run_fetch_incremental_files_backfills_never_fetched_submissions(
+    tmp_path, fake_client, monkeypatch
+):
+    from ojs.api import client as client_mod
+
+    fetched_for: list[list[int]] = []
+
+    def fake_files(base, key, submissions, *, known=None, **k):
+        known = known or {}
+        todo = [
+            s
+            for s in submissions
+            if known.get(s["id"]) is None or known[s["id"]] != s.get("dateLastActivity")
+        ]
+        fetched_for.append([s["id"] for s in todo])
+        return [{"id": 900 + s["id"], "_submission_id": s["id"]} for s in todo]
+
+    monkeypatch.setattr(client_mod, "fetch_all_submission_files", fake_files)
+    common = dict(base_url="http://base", api_key="key", out_dir=tmp_path, stats=False)
+
+    # Baseline without files, then an incremental run that turns files on:
+    # every submission must get file metadata, not just the recently changed.
+    api_run.run_fetch(**common, incremental=True)
+    api_run.run_fetch(**common, incremental=True, files=True)
+    assert fetched_for[-1] == [1, 2]
+    stored = json.loads((tmp_path / "submission_files.json").read_text())
+    assert sorted(f["id"] for f in stored) == [901, 902]
+
+    # Nothing changed since the last files fetch -> nothing refetched.
+    api_run.run_fetch(**common, incremental=True, files=True)
+    assert fetched_for[-1] == []
+    state = json.loads((tmp_path / "sync_state.json").read_text())
+    assert set(state["files_modified"]) == {"1", "2"}
+
+
+def test_run_fetch_stats_server_error_propagates_and_keeps_state(
+    tmp_path, fake_client, monkeypatch
+):
+    from ojs.api import client as client_mod
+    from ojs.errors import HttpError
+
+    def broken(*a, **k):
+        raise HttpError("server error", status_code=500, reason="Server Error")
+
+    monkeypatch.setattr(client_mod, "fetch_publication_stats", broken)
+    with pytest.raises(HttpError):
+        api_run.run_fetch(
+            base_url="http://base",
+            api_key="key",
+            out_dir=tmp_path,
+            stats=True,
+            incremental=True,
+        )
+    # A failed run never writes (or advances) the sync state.
+    assert not (tmp_path / "sync_state.json").exists()
+
+
+def test_run_fetch_stats_forbidden_is_skipped(tmp_path, fake_client, monkeypatch):
+    from ojs.api import client as client_mod
+    from ojs.errors import HttpError
+
+    def forbidden(*a, **k):
+        raise HttpError("forbidden", status_code=404, reason="Not Found")
+
+    monkeypatch.setattr(client_mod, "fetch_publication_stats", forbidden)
+    result = api_run.run_fetch(
+        base_url="http://base", api_key="key", out_dir=tmp_path, stats=True
+    )
+    assert result.stats_ok is False
+    assert result.publication_stats is None
+    assert not (tmp_path / "publication_stats.json").exists()
+
+
+def test_run_download_explicit_ids_without_a_files_dump_raises(tmp_path):
+    with pytest.raises(MissingDataError, match="submission_files.json"):
+        api_run.run_download(
+            base_url="http://base",
+            api_key="key",
+            api_dir=tmp_path,
+            submission_ids=[5],
+            fetch=False,
+        )
+
+
+def test_run_download_partial_stored_ids_warn_with_the_prefix(
+    tmp_path, monkeypatch, caplog
+):
+    _stub_file_downloads(monkeypatch)
+    _write_one_file_record(tmp_path)
+    caplog.set_level(logging.WARNING, logger="ojs")
+    api_run.run_download(
+        base_url="http://base",
+        api_key="key",
+        api_dir=tmp_path,
+        submission_ids=[5, 999],
+        fetch=False,
+    )
+    assert "WARNING: no stored file metadata for submission id(s) [999]" in caplog.text
+
+
+def test_website_run_norm_missing_explicit_input_file_raises(tmp_path):
+    missing = tmp_path / "nope.csv"
+    with pytest.raises(MissingDataError, match="nope.csv"):
+        web_run.run_norm("reviews", input_file=missing, out_dir=tmp_path / "out")
