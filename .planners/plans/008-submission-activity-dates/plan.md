@@ -1,10 +1,10 @@
 ---
 id: 8
 slug: submission-activity-dates
-status: active
+status: done
 branch: feature/submission-activity-dates
 created: 2026-09-25T08:59:28-07:00
-concluded:
+concluded: 2026-09-25T23:59:38-07:00
 pr: https://github.com/gitronald/ojs/pull/42
 ---
 
@@ -88,3 +88,30 @@ the latest activity was.
   round is the highest `round`, ties broken by highest `stageId`, since round
   numbers restart per review stage. Columns land after `last_modified` and
   `stage_id`; docs export verified via `ojs api schema` into a scratch dir.
+- 2026-09-25: Review gate (`/code-review`, medium) on PR #42. **Review
+  follow-up:** three findings, all fixed in `82efaae`: the latest-round
+  ordering keyed on round number before stage, so an internal-review round 2
+  outranked a newer external-review round 1 (fixed to stage first, then round,
+  with `test_latest_review_round_orders_by_stage_then_round`); the
+  `date_last_activity` description asserted triggers the Log above records as
+  unmeasured (reworded to what the spec and sync code establish); and
+  `date_submitted` lacked the timezone caveat given to its sibling columns.
+  Conscious no-ops: the unguarded `id` lookup on extended records matches the
+  sibling `normalize_review_assignments`; the long column descriptions are what
+  the plan asked for.
+
+## Retrospective
+
+- The "investigate first" steps assumed access to a live OJS instance; none
+  was available, so they were answered from the swagger snapshot and recorded
+  as such. Which actions bump `dateLastActivity` remains unmeasured and is the
+  one thing worth checking on a real instance.
+- `reviewRounds` is not a summary field, so the plan's "populate it in
+  normalize.py" quietly implied threading the extended records into
+  `normalize_submissions`. A plan touching a submission field should say which
+  endpoint carries it.
+- The review caught an inverted sort key that the original tie-only test
+  could not: rounds restart per stage, so stage has to be the primary key. A
+  test that only exercises the tie case does not pin the ordering.
+- Keeping unverified detail out of the column descriptions matters because
+  `ojs api schema` exports them verbatim as documentation.
