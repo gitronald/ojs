@@ -3,7 +3,9 @@
 These classes are the single source of truth for the article pipeline: column
 names, polars dtypes, the wide-CSV source headers (literal for submissions,
 ``(Author N)``/``(Editor N)`` patterns for the unpivoted tables), and the docs
-exported to ``table_schemas.csv``.
+exported to ``table_schemas.csv``. The ``N`` in a pattern stands for whatever
+indices the export carries; ``normalize`` reads them off the headers rather
+than assuming a maximum number of authors, editors, or decisions.
 """
 
 import polars as pl
@@ -110,7 +112,7 @@ class Authors(Table):
         pl.Int64, "Foreign key linking to submissions table", "Submission ID"
     )
     author_number = Column(
-        pl.Int64, "Sequential author number for this submission (1-15)"
+        pl.Int64, "Sequential author number for this submission (1 = first author)"
     )
     given_name = Column(pl.String, "Author's first/given name", "Given Name (Author N)")
     family_name = Column(
@@ -145,9 +147,7 @@ class Editors(Table):
     submission_id = Column(
         pl.Int64, "Foreign key linking to submissions table", "Submission ID"
     )
-    editor_number = Column(
-        pl.Int64, "Sequential editor number for this submission (1-4)"
-    )
+    editor_number = Column(pl.Int64, "Sequential editor number for this submission")
     given_name = Column(pl.String, "Editor's first/given name", "Given Name (Editor N)")
     family_name = Column(
         pl.String, "Editor's last/family name", "Family Name (Editor N)"
@@ -167,10 +167,8 @@ class Decisions(Table):
     submission_id = Column(
         pl.Int64, "Foreign key linking to submissions table", "Submission ID"
     )
-    editor_number = Column(pl.Int64, "Editor number (1-4) making this decision")
-    decision_number = Column(
-        pl.Int64, "Sequential decision number for this editor (1-9)"
-    )
+    editor_number = Column(pl.Int64, "Editor number making this decision")
+    decision_number = Column(pl.Int64, "Sequential decision number for this editor")
     decision = Column(
         pl.String,
         "Editorial decision text (Send to Review, Accept, etc)",

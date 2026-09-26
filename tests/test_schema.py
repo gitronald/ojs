@@ -1,5 +1,7 @@
 """Tests for the typed schema framework and schema/output parity."""
 
+import logging
+from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -408,3 +410,123 @@ def test_write_schema_docs_emits_in_output_flag(tmp_path):
     # dropped columns are documented with in_output=false
     dropped = doc.filter(pl.col("in_output") == "false")
     assert "coverage" in dropped["column_name"].to_list()
+
+
+def _write_wide_articles_csv(path: Path) -> None:
+    """An export wider than any fixed cap: 16 authors, 5 editors, decision 11."""
+    row: dict[str, object] = {
+        "Submission ID": 7,
+        "Title": "Many Hands",
+        "Status": "Published",
+        "Date submitted": "2024-01-01 09:00:00",
+    }
+    for n in range(1, 17):
+        row[f"Given Name (Author {n})"] = f"A{n}"
+        row[f"Family Name (Author {n})"] = f"Author{n}"
+    for n in range(1, 6):
+        row[f"Given Name (Editor {n})"] = f"E{n}"
+        row[f"Family Name (Editor {n})"] = f"Editor{n}"
+        row[f"Email (Editor {n})"] = f"e{n}@x.org"
+    # Decisions land where the export puts them, not at the low indices only:
+    # editor 1's eleventh decision and editor 5's first and tenth.
+    row["Editor Decision 11  (Editor 1)"] = "Accept"
+    row["Date decided 11  (Editor 1)"] = "2024-03-01 12:00:00"
+    row["Editor Decision 1  (Editor 5)"] = "Send to Review"
+    row["Date decided 1  (Editor 5)"] = "2024-02-01 12:00:00"
+    row["Editor Decision 10  (Editor 5)"] = "Decline"
+    # A date column with no decision partner is claimed but yields no row.
+    row["Date decided 4  (Editor 2)"] = "2024-02-10 12:00:00"
+    pl.DataFrame([row]).write_csv(path)
+
+
+def test_article_normalize_follows_the_export_width(tmp_path, caplog):
+    """Indices come from the headers, so nothing past an old cap is dropped."""
+    from ojs.website.articles import normalize as A
+
+    raw = tmp_path / "articles-2024.csv"
+    _write_wide_articles_csv(raw)
+    out = tmp_path / "out"
+    with caplog.at_level(logging.WARNING, logger="ojs"):
+        tables = A.normalize(raw, out)
+
+    assert "not mapped" not in caplog.text
+
+    authors = tables["authors"]
+    assert authors["author_number"].to_list() == list(range(1, 17))
+    assert tables["submissions"]["author_count"].to_list() == [16]
+
+    editors = tables["editors"]
+    assert editors["editor_number"].to_list() == [1, 2, 3, 4, 5]
+    assert editors.filter(pl.col("editor_number") == 5)["email"].to_list() == [
+        "e5@x.org"
+    ]
+
+    decisions = tables["decisions"]
+    assert decisions.select("editor_number", "decision_number").rows() == [
+        (1, 11),
+        (5, 1),
+        (5, 10),
+    ]
+    assert (
+        decisions.filter(pl.col("decision_number") == 10)["date_decided"]
+        .is_null()
+        .all()
+    )
+
+
+def test_entity_numbers_reads_indices_off_mapped_headers():
+    from ojs.website.articles.normalize import entity_numbers
+    from ojs.website.articles.schemas import Authors, Editors
+
+    columns = [
+        "Submission ID",
+        "Family Name (Author 12)",
+        "Given Name (Author 3)",
+        "Family Name (Editor 5)",
+        "Shoe Size (Author 40)",  # a base the schema does not map
+        "Editor Decision 2  (Editor 9)",  # not a profile field
+    ]
+    assert entity_numbers(columns, Authors.field_map("Author N"), "Author") == [3, 12]
+    assert entity_numbers(columns, Editors.field_map("Editor N"), "Editor") == [5]
+
+
+def test_decision_slots_pairs_headers_in_workflow_order():
+    from ojs.website.articles.normalize import DecisionSlot, decision_slots
+
+    columns = [
+        "Date decided 10  (Editor 2)",
+        "Editor Decision 1  (Editor 2)",
+        "Editor Decision 10  (Editor 2)",
+        "Editor Decision 3  (Editor 1)",
+        "Family Name (Editor 1)",
+    ]
+    assert decision_slots(columns) == [
+        DecisionSlot(1, 3, {"Editor Decision 3  (Editor 1)": "decision"}),
+        DecisionSlot(2, 1, {"Editor Decision 1  (Editor 2)": "decision"}),
+        DecisionSlot(
+            2,
+            10,
+            {
+                "Date decided 10  (Editor 2)": "date_decided",
+                "Editor Decision 10  (Editor 2)": "decision",
+            },
+        ),
+    ]
+
+
+def test_article_claimed_columns_are_uncapped():
+    from ojs.website.articles.normalize import _claimed_columns
+
+    columns = [
+        "Title",
+        "Email (Author 99)",
+        "ORCID iD (Editor 7)",
+        "Editor Decision 42  (Editor 7)",
+        "Date decided 42  (Editor 7)",
+        "Mystery Column",
+        "Shoe Size (Author 1)",
+    ]
+    assert _claimed_columns(columns) == set(columns) - {
+        "Mystery Column",
+        "Shoe Size (Author 1)",
+    }
