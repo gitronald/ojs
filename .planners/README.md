@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 008 | [Add the last-activity date to the submissions table](plans/008-submission-activity-dates/plan.md) | draft | — | — |
+| 008 | [Add the last-activity date to the submissions table](plans/008-submission-activity-dates/plan.md) | active | — | — |
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |
 | 003 | [Fix articles normalize silently dropping editor and decision columns](plans/003-articles-normalize-column-ranges/plan.md) | done | 2026-09-25 23:43 PT | [#40](https://github.com/gitronald/ojs/pull/40) |
