@@ -7,7 +7,8 @@ from typing import Any
 import polars as pl
 
 from ojs.api import schemas
-from ojs.utils import localized, strip_html
+from ojs.api.client import current_publication
+from ojs.utils import localized, log_sample, strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ def normalize_submissions(
 
     rows: list[dict[str, Any]] = []
     for sub in submissions:
-        pub_summary = sub["publications"][0] if sub.get("publications") else {}
+        pub_summary = current_publication(sub)
         pub_full = pub_by_sub.get(sub["id"], {})
         latest_round = latest_review_round(ext_by_sub.get(sub["id"], {}))
 
@@ -164,7 +165,7 @@ def _build_email_to_user_id(users: list[dict[str, Any]]) -> dict[str, int]:
             mapping[email] = next(iter(ids))
         else:
             logger.warning(
-                f"  Warning: email {email!r} maps to multiple user ids "
+                f"  WARNING: email {email!r} maps to multiple user ids "
                 f"{sorted(ids)}; leaving authors with this email unmatched"
             )
     return mapping
@@ -215,6 +216,24 @@ def normalize_authors(
     return df
 
 
+# Publication-detail columns built from publications.json, in schemas.Publications
+# (the rest of that table comes from the submissions frame).
+_PUBLICATION_FIELDS = (
+    "submission_id",
+    "publication_id",
+    "version",
+    "subtitle",
+    "authors_string",
+    "pages",
+    "seq",
+    "galley_count",
+    "locale",
+    "license_url",
+    "copyright_holder",
+    "copyright_year",
+)
+
+
 def normalize_publications(
     submissions_df: pl.DataFrame, publications: list[dict[str, Any]]
 ) -> pl.DataFrame:
@@ -244,22 +263,12 @@ def normalize_publications(
             }
         )
 
-    schema = {
-        "submission_id": pl.Int64,
-        "publication_id": pl.Int64,
-        "version": pl.Int64,
-        "subtitle": pl.String,
-        "authors_string": pl.String,
-        "pages": pl.String,
-        "seq": pl.Int64,
-        "galley_count": pl.Int64,
-        "locale": pl.String,
-        "license_url": pl.String,
-        "copyright_holder": pl.String,
-        "copyright_year": pl.Int64,
-    }
-
-    pub_df = pl.DataFrame(pub_rows, schema=schema)
+    # Dtypes for the publication-detail columns come from the schema class, so
+    # this intermediate frame cannot drift from the declared source of truth.
+    full_schema = schemas.Publications.polars_schema()
+    pub_df = pl.DataFrame(
+        pub_rows, schema={name: full_schema[name] for name in _PUBLICATION_FIELDS}
+    )
 
     sub_cols = [
         "submission_id",
@@ -279,6 +288,13 @@ def normalize_publications(
     published = submissions_df.filter(pl.col("status") == "Published").select(sub_cols)
 
     df = published.join(pub_df, on="submission_id", how="inner")
+    dropped = published.height - df.height
+    if dropped > 0:
+        logger.warning(
+            f"  WARNING: {dropped} published submission(s) have no published "
+            "(status 3) publication detail and are left out of the publications "
+            "table; re-run `ojs api fetch --full` to refresh publications.json"
+        )
 
     # Column order and dtypes come from the schema class (the source of truth).
     df = schemas.Publications.apply(df)
@@ -527,11 +543,11 @@ def normalize_api(
 
     logger.info(f"\nNormalization complete! All tables saved to {output_dir}/")
 
-    # Show sample
-    if subs_df.shape[0] > 0:
-        core_cols = ["submission_id", "title", "status", "date_submitted"]
-        available = [c for c in core_cols if c in subs_df.columns]
-        logger.info("\nSample from submissions:")
-        logger.info(subs_df.select(available).head(3))
+    log_sample(
+        logger,
+        subs_df,
+        "submissions",
+        ["submission_id", "title", "status", "date_submitted"],
+    )
 
     return tables

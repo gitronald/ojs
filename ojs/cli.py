@@ -19,16 +19,28 @@ from dotenv import load_dotenv
 from ojs import paths
 from ojs.errors import OjsError, OptionError
 
-# interpolate=False so a value containing `${VAR}` is read back verbatim instead
-# of being expanded against the environment -- this tool's config (URLs, keys,
-# dirs) never needs shell-style expansion. Quote/escape unescaping of `\\`, `\"`,
-# and `\n` is independent of interpolation, so quoted values still round-trip.
-load_dotenv(interpolate=False)
-# Fall back to a user-level config file for any value the CWD `.env` (or the real
-# environment) does not set: OJS_CONFIG_PATH if set, else ~/.config/ojs/.env.
-# override=False so the CWD `.env` and the environment keep precedence.
-config_path = os.environ.get("OJS_CONFIG_PATH") or "~/.config/ojs/.env"
-load_dotenv(Path(config_path).expanduser(), override=False, interpolate=False)
+
+def load_config() -> None:
+    """Load ``.env`` from the current directory, then the user-level fallback.
+
+    The CWD file is named explicitly: a bare ``load_dotenv()`` searches upward
+    from the *calling module's* directory, which for an installed package is
+    site-packages, so a project's ``.env`` would be silently ignored. The
+    fallback (``$OJS_CONFIG_PATH``, else ``~/.config/ojs/.env``) fills only values
+    the CWD ``.env`` and the real environment left unset; neither load overrides
+    a variable that is already set.
+
+    ``interpolate=False`` reads a value containing ``${VAR}`` back verbatim --
+    this tool's config (URLs, keys, dirs) never needs shell-style expansion.
+    Quote/escape unescaping is independent of interpolation, so quoted values
+    still round-trip.
+    """
+    load_dotenv(Path.cwd() / ".env", interpolate=False)
+    config_path = os.environ.get("OJS_CONFIG_PATH") or "~/.config/ojs/.env"
+    load_dotenv(Path(config_path).expanduser(), override=False, interpolate=False)
+
+
+load_config()
 
 
 class _StdoutProxy:

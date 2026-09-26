@@ -15,6 +15,7 @@ decides for itself.
 
 __all__ = [
     "ConfigError",
+    "HttpError",
     "MissingDataError",
     "OjsError",
     "OptionError",
@@ -44,3 +45,21 @@ class OptionError(OjsError):
 
 class MissingDataError(OjsError):
     """An input file the pipeline needs is not on disk."""
+
+
+class HttpError(OjsError):
+    """An HTTP request to OJS failed after any retries were exhausted.
+
+    Wraps the underlying ``httpx`` error so the CLI reports it as
+    ``Error: <message>`` instead of a traceback. ``status_code`` is the HTTP
+    status, or ``None`` for a transport failure (timeout, refused connection), so
+    callers can still branch on it (e.g. skipping 403/404 per item). The message
+    never carries the API token.
+    """
+
+    def __init__(
+        self, message: str, *, status_code: int | None = None, reason: str = ""
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.reason = reason

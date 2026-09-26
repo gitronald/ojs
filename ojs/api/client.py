@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from ojs.errors import HttpError
+
 logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 100
@@ -17,6 +19,12 @@ RETRY_DELAY = 2
 # real failure: the key lacks permission (403) or the resource is gone (404).
 # Callers skip the affected item and keep going instead of aborting the run.
 SKIP_STATUSES = (403, 404)
+
+# HTTP statuses worth retrying: rate limiting and transient server/gateway
+# failures (a restart or deploy mid-run). Anything else fails fast.
+RETRY_STATUSES = (429, 500, 502, 503, 504)
+# Upper bound on an honored `Retry-After`, so one header cannot stall a run.
+MAX_RETRY_AFTER = 60
 
 
 def _is_unchanged(sub: dict[str, Any], known: dict[int, str]) -> bool:
@@ -72,36 +80,54 @@ def _redact_token(text: str) -> str:
     return re.sub(r"(apiToken=)[^&\s'\")]+", r"\1[REDACTED]", text)
 
 
+def _retry_after(response: httpx.Response) -> int | None:
+    """The server's ``Retry-After`` delay in seconds, when given as an integer."""
+    value = response.headers.get("Retry-After", "")
+    return int(value) if value.isdigit() else None
+
+
 def _request_with_retry(
     client: _HttpClient, url: str, params: dict[str, Any]
 ) -> _Response:
-    """Make a GET request with retry on transient failures."""
+    """Make a GET request, retrying transient failures, raising ``HttpError``.
+
+    Transport errors (timeouts, refused connections) and the transient statuses
+    in :data:`RETRY_STATUSES` (rate limiting, gateway/server hiccups) are retried
+    with a growing delay, honoring an integer ``Retry-After`` up to
+    :data:`MAX_RETRY_AFTER` seconds. Any other status,
+    or a failure that outlasts the retries, raises :class:`~ojs.errors.HttpError`
+    -- an ``OjsError``, so the CLI reports it instead of a traceback. Its message
+    has the ``apiToken`` query value redacted (httpx echoes the full URL), and
+    its ``status_code`` lets callers skip 403/404 per item.
+    """
     for attempt in range(MAX_RETRIES):
+        last = attempt == MAX_RETRIES - 1
+        delay = RETRY_DELAY * (attempt + 1)
         try:
             response = client.get(url, params=params)
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as e:
-            # An HTTP status error carries the request URL -- with the apiToken
-            # query value -- in its message. Re-raise a status-equivalent error
-            # with the token redacted so it can't leak to the console/logs;
-            # callers still branch on ``e.response.status_code`` for 403/404 skips.
-            raise httpx.HTTPStatusError(
-                _redact_token(str(e)), request=e.request, response=e.response
-            ) from None
+            status = e.response.status_code
+            if status not in RETRY_STATUSES or last:
+                raise HttpError(
+                    _redact_token(str(e)),
+                    status_code=status,
+                    reason=e.response.reason_phrase,
+                ) from None
+            server_delay = min(_retry_after(e.response) or 0, MAX_RETRY_AFTER)
+            delay = max(delay, server_delay)
+            cause = f"HTTP {status}"
         except httpx.TransportError as e:
-            # TransportError covers connect/read/pool timeouts and protocol
-            # errors -- the transient failures worth retrying. HTTP status
-            # errors (4xx/5xx) are not transport errors and propagate.
-            if attempt == MAX_RETRIES - 1:
-                raise
-            delay = RETRY_DELAY * (attempt + 1)
-            cls = e.__class__.__name__
-            logger.info(
-                f"    Retry {attempt + 1}/{MAX_RETRIES} after {cls}, "
-                f"waiting {delay}s..."
-            )
-            time.sleep(delay)
+            if last:
+                raise HttpError(
+                    _redact_token(f"{e.__class__.__name__}: {e} ({url})")
+                ) from None
+            cause = e.__class__.__name__
+        logger.info(
+            f"    Retry {attempt + 1}/{MAX_RETRIES} after {cause}, waiting {delay}s..."
+        )
+        time.sleep(delay)
     raise RuntimeError("unreachable")
 
 
@@ -133,7 +159,9 @@ def _paginate(
 
     Most list endpoints return an `{items, itemsMax}` envelope. Some (the swagger
     snapshot documents `/stats/publications` this way) return a bare array; that
-    is handled too -- a short page ends pagination, a full page advances offset.
+    is handled too -- a short page ends pagination, a full page advances offset,
+    and a page identical to the previous one (a server ignoring `offset`) ends it
+    with a warning rather than looping forever.
 
     When `since` is set the caller must also request newest-first ordering on
     `since_key` (`orderBy=...&orderDirection=DESC`). Pagination then early-stops:
@@ -143,6 +171,7 @@ def _paginate(
     """
     all_items: list[dict[str, Any]] = []
     offset = 0
+    prev_page: list[dict[str, Any]] = []
 
     while True:
         params["count"] = PAGE_SIZE
@@ -151,6 +180,16 @@ def _paginate(
         data = response.json()
 
         page, total = _unwrap_items(data, url)
+
+        # A bare-array endpoint that ignores `offset` returns the same full page
+        # forever, and short-page detection alone would never end the walk.
+        if offset and page and page == prev_page:
+            logger.warning(
+                f"WARNING: {url} returned the same page again at offset {offset}; "
+                "the server is ignoring paging. Stopping to avoid duplicates."
+            )
+            break
+        prev_page = page
 
         reached_since = False
         if since is not None:
@@ -227,6 +266,21 @@ def fetch_submissions_extended(
         )
 
 
+def current_publication(sub: dict[str, Any]) -> dict[str, Any]:
+    """The submission's current publication summary, or ``{}`` when it has none.
+
+    OJS lists every version in ``publications`` and names the current one by
+    ``currentPublicationId``; after a new version the first entry is stale, so
+    match by id. Falls back to the first entry when the id is absent or unmatched.
+    """
+    pubs = sub.get("publications") or []
+    current_id = sub.get("currentPublicationId")
+    for pub in pubs:
+        if current_id is not None and pub.get("id") == current_id:
+            return pub
+    return pubs[0] if pubs else {}
+
+
 def _fetch_publication(
     client: httpx.Client,
     base_url: str,
@@ -259,7 +313,7 @@ def fetch_all_publications(
     *,
     known: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch full publication details for the given submissions.
+    """Fetch each submission's current publication detail (see `current_publication`).
 
     `known` maps submission_id -> last-seen `dateLastActivity`. When a
     submission's current `dateLastActivity` matches its `known` value, the detail
@@ -276,8 +330,8 @@ def fetch_all_publications(
 
     with _http_client() as client:
         for i, sub in enumerate(submissions):
-            pubs = sub.get("publications", [])
-            if not pubs:
+            summary = current_publication(sub)
+            if not summary:
                 continue
 
             if _is_unchanged(sub, known):
@@ -285,7 +339,7 @@ def fetch_all_publications(
                 continue
 
             pub = _fetch_publication(
-                client, base_url, api_key, sub["id"], pubs[0]["id"]
+                client, base_url, api_key, sub["id"], summary["id"]
             )
             publications.append(pub)
 
@@ -384,7 +438,8 @@ def fetch_all_submission_files(
     whose current `dateLastActivity` matches its `known` value is skipped as
     unchanged -- the same incremental saving used by `fetch_all_publications`,
     since this endpoint costs one HTTP round-trip per submission. New
-    submissions (absent from `known`) are always fetched.
+    submissions (absent from `known`) are always fetched. A submission whose
+    files endpoint answers 403/404 is logged and skipped rather than aborting.
     """
     known = known or {}
     logger.info(f"Fetching submission files for {len(submissions)} submissions...")
@@ -397,8 +452,8 @@ def fetch_all_submission_files(
                 skipped += 1
                 continue
 
-            files.extend(
-                _fetch_submission_files(
+            try:
+                sub_files = _fetch_submission_files(
                     client,
                     base_url,
                     api_key,
@@ -406,7 +461,17 @@ def fetch_all_submission_files(
                     file_stages=file_stages,
                     review_round_ids=review_round_ids,
                 )
-            )
+            except HttpError as e:
+                # A submission the key cannot see (or one since deleted) must not
+                # abort the batch -- the same 403/404 skip the file downloader uses.
+                if e.status_code not in SKIP_STATUSES:
+                    raise
+                logger.info(
+                    f"  Skipping files for submission {sub['id']}: "
+                    f"{e.status_code} {e.reason}"
+                )
+                continue
+            files.extend(sub_files)
 
             if (i + 1) % 50 == 0:
                 logger.info(
