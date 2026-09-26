@@ -49,6 +49,22 @@ ALWAYS_NULL_COLUMNS = [
 ]
 
 
+def _entity_index(col: str, field_map: dict[str, str], label: str) -> int | None:
+    """The entity index of ``col`` if it is a mapped ``<base> (<label> N)`` header.
+
+    The one place the entity-header rule lives, shared by :func:`entity_numbers`
+    and the unmapped-column check so the two cannot drift. A decision header
+    also ends in ``(Editor N)`` and would otherwise match with a spurious base,
+    so it is excluded up front rather than left to the ``field_map`` lookup.
+    """
+    if _DECISION_HEADER.match(col):
+        return None
+    m = _ENTITY_HEADER.match(col)
+    if m and m["label"] == label and m["base"] in field_map:
+        return int(m["n"])
+    return None
+
+
 def entity_numbers(
     columns: Iterable[str], field_map: dict[str, str], label: str
 ) -> list[int]:
@@ -60,11 +76,9 @@ def entity_numbers(
     fifth editor or a sixteenth author from being dropped: there is no cap to
     exceed.
     """
-    numbers: set[int] = set()
-    for col in columns:
-        m = _ENTITY_HEADER.match(col)
-        if m and m["label"] == label and m["base"] in field_map:
-            numbers.add(int(m["n"]))
+    numbers = {
+        n for col in columns if (n := _entity_index(col, field_map, label)) is not None
+    }
     return sorted(numbers)
 
 
@@ -111,15 +125,16 @@ def _claimed_columns(columns: Iterable[str]) -> set[str]:
         "Author": Authors.field_map("Author N"),
         "Editor": Editors.field_map("Editor N"),
     }
-    claimed: set[str] = set()
-    for col in columns:
-        if col in literal or _DECISION_HEADER.match(col):
-            claimed.add(col)
-            continue
-        m = _ENTITY_HEADER.match(col)
-        if m and m["base"] in fields[m["label"]]:
-            claimed.add(col)
-    return claimed
+    return {
+        col
+        for col in columns
+        if col in literal
+        or _DECISION_HEADER.match(col)
+        or any(
+            _entity_index(col, field_map, label) is not None
+            for label, field_map in fields.items()
+        )
+    }
 
 
 def _unpivot_numbered_columns(

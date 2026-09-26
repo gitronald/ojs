@@ -490,6 +490,21 @@ def test_entity_numbers_reads_indices_off_mapped_headers():
     assert entity_numbers(columns, Editors.field_map("Editor N"), "Editor") == [5]
 
 
+def test_entity_numbers_excludes_decision_headers_up_front():
+    """A decision header never counts as an entity, even with a colluding base.
+
+    ``Editor Decision 11  (Editor 1)`` also parses as ``<base> (Editor 1)`` with
+    the base ``Editor Decision 11 ``; the exclusion must not depend on that base
+    happening to be absent from the schema.
+    """
+    from ojs.website.articles.normalize import _claimed_columns, entity_numbers
+
+    col = "Editor Decision 11  (Editor 1)"
+    colluding = {"Editor Decision 11 ": "decision"}
+    assert entity_numbers([col], colluding, "Editor") == []
+    assert _claimed_columns([col]) == {col}
+
+
 def test_decision_slots_pairs_headers_in_workflow_order():
     from ojs.website.articles.normalize import DecisionSlot, decision_slots
 
