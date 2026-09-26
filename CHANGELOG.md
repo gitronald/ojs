@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 - Add `date_last_activity` to the API `submissions` table (from `dateLastActivity`, the same timestamp `ojs api fetch` uses as its sync watermark). It is the latest editorial activity on the submission, which moves when the stage changes while `last_modified` does not. It records the most recent action, not the stage change: the next action overwrites it, so a consumer dating a stage change must capture the value the first time it sees the new `stage_id`. Like the other API datetimes it is naive server-local time; the API reports no offset.
-- Add `review_round` and `review_round_status` to the `submissions` table: the number and status label (e.g. "Waiting for reviewers to be assigned.") of the latest review round from the extended submissions endpoint (highest round, ties broken by highest stage), so a consumer can tell which activity `date_last_activity` most likely belongs to. Both are null when no round has been opened. `normalize_submissions` gains an optional third argument, `submissions_ext`, that supplies these; omitting it keeps the columns null.
+- Add `review_round` and `review_round_status` to the `submissions` table: the number and status label (e.g. "Waiting for reviewers to be assigned.") of the latest review round from the extended submissions endpoint (highest review stage, then highest round within it), so a consumer can tell which activity `date_last_activity` most likely belongs to. Both are null when no round has been opened. `normalize_submissions` gains an optional third argument, `submissions_ext`, that supplies these; omitting it keeps the columns null.
 
 ## [0.9.3] - 2026-09-25
 

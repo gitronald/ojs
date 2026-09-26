@@ -33,24 +33,26 @@ def _author_seq_key(author: dict[str, Any]) -> float:
 
 
 def _round_sort_key(rnd: dict[str, Any]) -> tuple[int, int]:
-    """Sort key ordering review rounds by ``round``, then ``stageId``.
+    """Sort key ordering review rounds by ``stageId``, then ``round``.
 
-    Round numbers restart per stage (internal vs. external review), so the stage
-    breaks a tie between equal round numbers. Null/missing values fold to 0.
+    The workflow only moves forward through the review stages (internal review
+    2 -> external review 3) and round numbers restart per stage, so the stage
+    is the primary key and the round number orders within it. Null/missing
+    values fold to 0.
     """
     round_no = rnd.get("round")
     stage_id = rnd.get("stageId")
     return (
-        round_no if isinstance(round_no, int) else 0,
         stage_id if isinstance(stage_id, int) else 0,
+        round_no if isinstance(round_no, int) else 0,
     )
 
 
 def latest_review_round(sub_ext: dict[str, Any]) -> dict[str, Any]:
     """Return the latest review round on an extended submission record.
 
-    The ``reviewRounds`` list carries no date, so "latest" is the round with the
-    highest ``round`` number, breaking ties on the highest ``stageId``. Returns
+    The ``reviewRounds`` list carries no date, so "latest" is the round in the
+    highest ``stageId``, then the highest ``round`` number within it. Returns
     ``{}`` when the record has no rounds (missing key, JSON ``null``, or ``[]``).
     """
     rounds = sub_ext.get("reviewRounds") or []

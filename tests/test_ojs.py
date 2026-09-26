@@ -237,17 +237,21 @@ def test_normalize_submissions_review_round_null_and_empty():
     assert df2["review_round"].to_list() == [None, None]
 
 
-def test_latest_review_round_breaks_round_tie_on_stage():
-    # Round numbers restart per stage: internal review round 1 (stage 2) and
-    # external review round 1 (stage 3) tie on `round`; the later stage wins.
+def test_latest_review_round_orders_by_stage_then_round():
+    # Round numbers restart per stage and the workflow only moves forward, so a
+    # newly opened external review round 1 (stage 3) is later than internal
+    # review round 2 (stage 2), and within a stage the higher round wins.
     ext = {
         "reviewRounds": [
-            {"round": 1, "stageId": 3, "status": "External"},
-            {"round": 1, "stageId": 2, "status": "Internal"},
+            {"round": 2, "stageId": 2, "status": "InternalR2"},
+            {"round": 1, "stageId": 3, "status": "ExternalR1"},
+            {"round": 1, "stageId": 2, "status": "InternalR1"},
             {"round": None, "stageId": None, "status": "Broken"},
         ]
     }
-    assert latest_review_round(ext)["status"] == "External"
+    assert latest_review_round(ext)["status"] == "ExternalR1"
+    ext["reviewRounds"].append({"round": 2, "stageId": 3, "status": "ExternalR2"})
+    assert latest_review_round(ext)["status"] == "ExternalR2"
     assert latest_review_round({}) == {}
 
 

@@ -62,7 +62,10 @@ class Submissions(Table):
     )
     doi = Column(pl.String, "DOI of the publication.", "publications[0].pub-id::doi")
     date_submitted = Column(
-        pl.Datetime("us"), "Datetime the submission was submitted.", "dateSubmitted"
+        pl.Datetime("us"),
+        "Datetime the submission was submitted. Naive server-local time (the "
+        "API reports no offset).",
+        "dateSubmitted",
     )
     last_modified = Column(
         pl.Datetime("us"),
@@ -72,9 +75,10 @@ class Submissions(Table):
     )
     date_last_activity = Column(
         pl.Datetime("us"),
-        "Datetime of the LATEST editorial activity recorded on the submission "
-        "(stage change, review round, assignment, discussion, file upload). "
-        "Naive server-local time. This is the most recent activity, not the "
+        "Datetime the last activity was recorded on the submission (the field "
+        "the OJS API orders and syncs by; it moves on a stage change, unlike "
+        "last_modified). Naive server-local time. This is the latest activity, "
+        "not the "
         "stage-change date: the next action overwrites it, so a consumer that "
         "needs the date a stage was entered must capture this value the first "
         "time it sees the new stage_id.",
@@ -86,9 +90,9 @@ class Submissions(Table):
     stage_id = Column(pl.Int64, "Current editorial workflow stage id.", "stageId")
     review_round = Column(
         pl.Int64,
-        "Number of the latest review round opened (highest round, then highest "
-        "stage); null when no round has been opened. From the extended "
-        "submissions endpoint.",
+        "Number of the latest review round opened (highest review stage, then "
+        "highest round within it); null when no round has been opened. From "
+        "the extended submissions endpoint.",
         "_submissions[].reviewRounds[].round",
     )
     review_round_status = Column(
