@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-26
+
+- Add `date_last_activity` to the API `submissions` table (from `dateLastActivity`, the same timestamp `ojs api fetch` uses as its sync watermark). It is the latest editorial activity on the submission, which moves when the stage changes while `last_modified` does not. It records the most recent action, not the stage change: the next action overwrites it, so a consumer dating a stage change must capture the value the first time it sees the new `stage_id`. Like the other API datetimes it is naive server-local time; the API reports no offset.
+- Add `review_round` and `review_round_status` to the `submissions` table: the number and status label (e.g. "Waiting for reviewers to be assigned.") of the latest review round from the extended submissions endpoint (highest review stage, then highest round within it), so a consumer can tell which activity `date_last_activity` most likely belongs to. Both are null when no round has been opened. `normalize_submissions` gains an optional third argument, `submissions_ext`, that supplies these; omitting it keeps the columns null.
+
 ## [0.9.3] - 2026-09-25
 
 - Fix `ojs articles norm` silently dropping editors and decisions beyond fixed caps. The normalizer hardcoded 15 authors, 4 editors, and 9 decisions per editor; an export carrying a fifth editor or a tenth decision had those columns reported as unmapped and left out of `editors.csv` / `decisions.csv`. The author, editor, and decision indices are now read off the export's own headers (`entity_numbers`, `decision_slots` in `ojs.website.articles.normalize`), so the tables follow the export's width. The `AUTHOR_RANGE`, `EDITOR_RANGE`, and `DECISION_RANGE` module constants are removed. Output for entities within the old caps is unchanged.
