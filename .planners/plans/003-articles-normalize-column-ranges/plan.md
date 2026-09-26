@@ -1,8 +1,8 @@
 ---
 id: 3
 slug: articles-normalize-column-ranges
-status: draft
-branch:
+status: active
+branch: feature/articles-normalize-column-ranges
 created: 2026-07-08T18:39:28-07:00
 concluded:
 pr:

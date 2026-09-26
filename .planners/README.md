@@ -2,8 +2,8 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
+| 003 | [Fix articles normalize silently dropping editor and decision columns](plans/003-articles-normalize-column-ranges/plan.md) | active | — | — |
 | 008 | [Add the last-activity date to the submissions table](plans/008-submission-activity-dates/plan.md) | draft | — | — |
-| 003 | [Fix articles normalize silently dropping editor and decision columns](plans/003-articles-normalize-column-ranges/plan.md) | draft | — | — |
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |
 | 007 | [Sync tooling with the current proj-template standard](plans/007-template-upgrade-2/plan.md) | done | 2026-09-09 13:04 PT | [#35](https://github.com/gitronald/ojs/pull/35) |
