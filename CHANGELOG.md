@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.9.3] - 2026-09-25
 
 - Fix `ojs articles norm` silently dropping editors and decisions beyond fixed caps. The normalizer hardcoded 15 authors, 4 editors, and 9 decisions per editor; an export carrying a fifth editor or a tenth decision had those columns reported as unmapped and left out of `editors.csv` / `decisions.csv`. The author, editor, and decision indices are now read off the export's own headers (`entity_numbers`, `decision_slots` in `ojs.website.articles.normalize`), so the tables follow the export's width. The `AUTHOR_RANGE`, `EDITOR_RANGE`, and `DECISION_RANGE` module constants are removed. Output for entities within the old caps is unchanged.
+- Refresh the lockfile to pull `anyio` past two published advisories (CVE-2026-63374 and CVE-2026-64847, fixed in 4.14.2; resolved to 4.15.1). `anyio` is a transitive dependency via `httpx`; no direct dependency bounds change.
 
 ## [0.9.2] - 2026-09-09
 
