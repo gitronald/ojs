@@ -33,11 +33,21 @@ DEFAULT_DOWNLOADS_DIR = "data/ojs-website"
 DEFAULT_API_DIR = "data/ojs-api"
 
 
+def _env(name: str) -> str | None:
+    """The environment variable's value, treating an empty string as unset.
+
+    A blank ``OJS_API_DIR=`` line in a ``.env`` loads as ``""``, and ``Path("")``
+    is the current directory -- output would silently land wherever the command
+    ran instead of at the default.
+    """
+    return os.environ.get(name) or None
+
+
 def downloads_dir(override: Path | str | None = None) -> Path:
     """Where the website CSV exports are fetched to and normalized from."""
     if override is not None:
         return Path(override)
-    return Path(os.environ.get("OJS_DOWNLOADS_DIR", DEFAULT_DOWNLOADS_DIR))
+    return Path(_env("OJS_DOWNLOADS_DIR") or DEFAULT_DOWNLOADS_DIR)
 
 
 def articles_dir(
@@ -54,7 +64,7 @@ def articles_dir(
         return Path(override)
     if downloads is not None:
         return downloads_dir(downloads) / "articles"
-    return Path(os.environ.get("OJS_ARTICLES_DIR", downloads_dir() / "articles"))
+    return Path(_env("OJS_ARTICLES_DIR") or downloads_dir() / "articles")
 
 
 def reviews_dir(
@@ -71,14 +81,14 @@ def reviews_dir(
         return Path(override)
     if downloads is not None:
         return downloads_dir(downloads) / "reviews"
-    return Path(os.environ.get("OJS_REVIEWS_DIR", downloads_dir() / "reviews"))
+    return Path(_env("OJS_REVIEWS_DIR") or downloads_dir() / "reviews")
 
 
 def api_dir(override: Path | str | None = None) -> Path:
     """Where the raw API JSON dumps and sync state live."""
     if override is not None:
         return Path(override)
-    return Path(os.environ.get("OJS_API_DIR", DEFAULT_API_DIR))
+    return Path(_env("OJS_API_DIR") or DEFAULT_API_DIR)
 
 
 def files_dir(
@@ -95,4 +105,4 @@ def files_dir(
         return Path(override)
     if api is not None:
         return api_dir(api) / "files"
-    return Path(os.environ.get("OJS_FILES_DIR", api_dir() / "files"))
+    return Path(_env("OJS_FILES_DIR") or api_dir() / "files")

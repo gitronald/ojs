@@ -8,12 +8,12 @@ those modules focused on their single concern.
 """
 
 import json
-import os
-import tempfile
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+from ojs.fsutil import write_bytes_atomic
 
 # Sync-state file name, resolved relative to the API dir by the CLI.
 SYNC_STATE_FILENAME = "sync_state.json"
@@ -33,36 +33,22 @@ KeyFn = Callable[[dict[str, Any]], object]
 def write_json(path: Path, data: Any) -> None:
     """Write `data` to `path` as indented JSON, atomically.
 
-    Serializes once, writes to a temp file in the same directory, fsyncs it, then
-    atomically renames it over `path` (``os.replace``). A crash or full disk
-    mid-write leaves the previous complete file intact rather than a truncated
-    dump, so every caller (sync state, raw dumps, manifest, skip log) is durable.
+    Serializes once and hands the bytes to :func:`ojs.fsutil.write_bytes_atomic`,
+    so a crash or full disk mid-write leaves the previous complete file intact
+    rather than a truncated dump, and every caller (sync state, raw dumps,
+    manifest, skip log) is durable.
     """
-    text = json.dumps(data, indent=2)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-    )
-    try:
-        # mkstemp creates the file 0600; restore the umask-derived mode so the
-        # atomic write does not silently make dumps owner-only (write_text gave
-        # ~0644). Read-and-restore the process umask to compute the mode.
-        umask = os.umask(0o022)
-        os.umask(umask)
-        os.fchmod(fd, 0o666 & ~umask)
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    write_bytes_atomic(path, json.dumps(data, indent=2).encode())
 
 
 def _empty_state() -> dict[str, Any]:
     """Default state for a journal that has never been synced incrementally."""
-    return {"last_sync": None, "stats_last_sync": None, "submission_modified": {}}
+    return {
+        "last_sync": None,
+        "stats_last_sync": None,
+        "submission_modified": {},
+        "files_modified": {},
+    }
 
 
 def load_sync_state(path: Path) -> dict[str, Any]:
@@ -72,7 +58,8 @@ def load_sync_state(path: Path) -> dict[str, Any]:
     ``stats_last_sync`` (wall-clock of the last *successful stats* fetch, the
     anchor for the rolling view-stats window), and ``submission_modified``
     (submission_id -> ``dateLastActivity`` high-water mark, used to early-stop and
-    skip-unchanged). A missing or corrupt file yields an empty state so a first
+    skip-unchanged), and ``files_modified`` (the same map as of the last run that
+    fetched file metadata). A missing or corrupt file yields an empty state so a first
     run falls back to a full pull rather than crashing.
     """
     if not path.exists():
@@ -84,6 +71,7 @@ def load_sync_state(path: Path) -> dict[str, Any]:
     state.setdefault("last_sync", None)
     state.setdefault("stats_last_sync", None)
     state.setdefault("submission_modified", {})
+    state.setdefault("files_modified", {})
     return state
 
 
