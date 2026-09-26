@@ -265,7 +265,7 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 
 | Table | One row per |
 | --- | --- |
-| `submissions` | Submission — status, stage, dates, type, DOI, and a first-author summary |
+| `submissions` | Submission — status, stage, dates (incl. last activity), latest review round, type, DOI, and a first-author summary |
 | `publications` | Publication version — title, abstract, issue, pages, license, galley count |
 | `authors` | Author per submission, `author_number` in display order, joined to OJS accounts via `user_id` |
 | `review_assignments` | Reviewer assignment — round, status, response and review due dates |

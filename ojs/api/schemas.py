@@ -62,15 +62,45 @@ class Submissions(Table):
     )
     doi = Column(pl.String, "DOI of the publication.", "publications[0].pub-id::doi")
     date_submitted = Column(
-        pl.Datetime("us"), "Datetime the submission was submitted.", "dateSubmitted"
+        pl.Datetime("us"),
+        "Datetime the submission was submitted. Naive server-local time (the "
+        "API reports no offset).",
+        "dateSubmitted",
     )
     last_modified = Column(
-        pl.Datetime("us"), "Datetime the submission was last modified.", "lastModified"
+        pl.Datetime("us"),
+        "Datetime the submission or one of its associated objects was last "
+        "modified. Naive server-local time (the API reports no offset).",
+        "lastModified",
+    )
+    date_last_activity = Column(
+        pl.Datetime("us"),
+        "Datetime the last activity was recorded on the submission (the field "
+        "the OJS API orders and syncs by; it moves on a stage change, unlike "
+        "last_modified). Naive server-local time. This is the latest activity, "
+        "not the "
+        "stage-change date: the next action overwrites it, so a consumer that "
+        "needs the date a stage was entered must capture this value the first "
+        "time it sees the new stage_id.",
+        "dateLastActivity",
     )
     date_published = Column(
         pl.Date, "Publication date (date-only).", "publications[0].datePublished"
     )
     stage_id = Column(pl.Int64, "Current editorial workflow stage id.", "stageId")
+    review_round = Column(
+        pl.Int64,
+        "Number of the latest review round opened (highest review stage, then "
+        "highest round within it); null when no round has been opened. From "
+        "the extended submissions endpoint.",
+        "_submissions[].reviewRounds[].round",
+    )
+    review_round_status = Column(
+        pl.String,
+        "Human-readable status of the latest review round, e.g. 'Waiting for "
+        "reviewers to be assigned.'; null when no round has been opened.",
+        "_submissions[].reviewRounds[].status",
+    )
     issue_id = Column(
         pl.Int64, "Issue id the publication belongs to.", "publications[].issueId"
     )
