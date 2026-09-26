@@ -21,9 +21,10 @@ and 3.3.
 ojs/
 ├── cli.py              # Typer CLI: init, articles, reviews, api (+ schema docs)
 ├── errors.py           # OjsError hierarchy raised by the run entry points
+├── fsutil.py           # Atomic file writes shared by every pipeline
 ├── paths.py            # Output directory resolution (argument → env var → default)
 ├── schema.py           # Typed schema framework: Column/Table, apply(), doc export
-├── utils.py            # HTML stripping + localized-field extraction
+├── utils.py            # HTML stripping, localized fields, sample logging
 ├── website/            # Website CSV-export pipelines
 │   ├── run.py          # run_report_fetch / run_norm entry points
 │   ├── reports.py      # Authenticated report-CSV fetch (OJS login + download)
@@ -221,7 +222,8 @@ and `revision_count`. Downloads cover the current file plus every revision, each
 keyed by its own `fileId`.
 
 Downloading files requires an API token with permission to view them; the API
-returns `403` for files the key cannot access.
+returns `403` for files the key cannot access. Those files, and submissions whose
+file list the API refuses, are logged and skipped rather than aborting the run.
 
 ### Incremental fetch
 
@@ -239,6 +241,7 @@ How it works:
 - Submissions and extended submissions are pulled newest-first by `dateLastActivity` and stop early at the watermark. Publication details are skipped for submissions whose `dateLastActivity` is unchanged — the biggest saving, since that endpoint costs one request per submission.
 - A one-day overlap buffer re-pulls the boundary on each run; merges are idempotent (upsert by id), so the overlap is harmless.
 - View stats: `publication_stats` (cumulative totals) is always pulled in full, while the daily `views_timeline` is re-pulled over a rolling window and merged by `(submission_id, interval, date, kind)`, refreshing recent buckets without dropping history.
+- File metadata (`--files`) keeps its own per-submission watermark, advanced only by runs that fetched files. Turning `--files` on for an incremental run therefore backfills every submission whose files were never fetched, then skips the unchanged ones on later runs.
 - Users are always pulled in full — the API exposes no recency sort for users.
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
@@ -336,8 +339,9 @@ Three conventions make these usable from another codebase:
 - **Exceptions, not exit codes.** Library code raises `ojs.errors.OjsError` —
   `ConfigError` (missing credentials or report settings), `OptionError`
   (contradictory or malformed arguments), `MissingDataError` (a required input is
-  not on disk). The CLI catches these and maps them back to its usual messages
-  and exit codes.
+  not on disk), `HttpError` (an API request or report download failed after
+  retries; carries `status_code` and `reason`). The CLI catches these and maps
+  them back to its usual messages and exit codes.
 
 Progress goes to the `ojs` logger, which the package fits with a `NullHandler`,
 so an embedding caller sees nothing on the console by default. To get the same

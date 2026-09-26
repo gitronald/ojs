@@ -1,6 +1,7 @@
 """Shared utilities for OJS data normalization."""
 
 import html
+import logging
 from typing import Any
 
 import polars as pl
@@ -49,3 +50,17 @@ def localized(
             return primary or next((v for v in value.values() if v), None)
         return primary or None
     return value or None
+
+
+def log_sample(
+    logger: logging.Logger, df: pl.DataFrame, label: str, columns: list[str]
+) -> None:
+    """Log the first three rows of ``df``'s ``columns`` that exist, if any rows.
+
+    The closing preview every ``norm`` command prints after writing its tables.
+    """
+    if df.height == 0:
+        return
+    available = [c for c in columns if c in df.columns]
+    logger.info(f"\nSample from {label} table:")
+    logger.info(df.select(available).head(3))

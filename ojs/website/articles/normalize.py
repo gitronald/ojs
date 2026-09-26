@@ -24,6 +24,7 @@ from pathlib import Path
 
 import polars as pl
 
+from ojs.utils import log_sample
 from ojs.website.articles.schemas import Authors, Decisions, Editors, Submissions
 
 logger = logging.getLogger(__name__)
@@ -353,11 +354,11 @@ def normalize(input_file: Path, output_dir: Path) -> dict[str, pl.DataFrame]:
 
     logger.info(f"\nNormalization complete! All tables saved to {output_dir}/")
 
-    submissions = tables["submissions"]
-    if submissions.shape[0] > 0:
-        core_cols = ["submission_id", "title", "status", "date_submitted"]
-        available = [c for c in core_cols if c in submissions.columns]
-        logger.info("\nSample from submissions table:")
-        logger.info(submissions.select(available).head(3))
+    log_sample(
+        logger,
+        tables["submissions"],
+        "submissions",
+        ["submission_id", "title", "status", "date_submitted"],
+    )
 
     return tables

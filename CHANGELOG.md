@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-26
+
+- Fix the CLI ignoring a project's `.env` when `ojs` is installed as a package rather than in editable mode. The file was searched for from the installed module's directory instead of the current directory; it is now read from the current directory as documented, with the `$OJS_CONFIG_PATH` / `~/.config/ojs/.env` fallback unchanged.
+- Fix HTTP failures printing a Python traceback. An error status or connection failure from the OJS API or the website report download now surfaces as `Error: <message>` with exit code 1, via a new `ojs.errors.HttpError` (an `OjsError` carrying `status_code` and `reason`). Library callers that caught `httpx.HTTPStatusError` from `ojs.api` should catch `HttpError` instead.
+- Retry rate-limit and transient server responses (429, 500, 502, 503, 504) with backoff, honoring an integer `Retry-After` (capped at 60 seconds), instead of aborting on the first one. Previously only connection-level errors were retried.
+- Fix `--since` accepting compact dates such as `20260101`, which compared below every API timestamp and made an incremental fetch silently pull nothing. `--since`, `--stats-since`, and `--stats-until` now require `YYYY-MM-DD`.
+- Fix `ojs api fetch --incremental --files` fetching file metadata only for recently changed submissions when earlier runs did not use `--files`. File metadata now has its own watermark (`files_modified` in `sync_state.json`); the first incremental `--files` run after upgrading refetches file metadata for every submission once.
+- Fetch each submission's current publication version (`currentPublicationId`) rather than the first entry of its `publications` list, so publication details and the `submissions` title, DOI, URL, and section follow new versions. `ojs.api.client.current_publication` exposes the selection.
+- Warn when `ojs api norm` leaves published submissions out of the `publications` table because their stored publication detail is not published.
+- Skip (and log) a submission whose file list returns 403/404 during `ojs api download --fetch` or `ojs api fetch --files`, instead of aborting the batch.
+- Write downloaded submission files atomically, so a run interrupted mid-download can no longer leave a truncated file that later runs treat as complete.
+- Strip a trailing slash from `OJS_BASE_URL` before building API URLs, and treat an empty `OJS_*_DIR` variable as unset rather than as the current directory.
+- Stop paging a list endpoint that ignores `offset` and keeps returning the same page, with a warning, instead of looping forever.
+- Prefix the ambiguous-author-email and missing-file-metadata warnings with `WARNING`, like every other warning.
+
 ## [0.10.0] - 2026-09-26
 
 - Add `date_last_activity` to the API `submissions` table (from `dateLastActivity`, the same timestamp `ojs api fetch` uses as its sync watermark). It is the latest editorial activity on the submission, which moves when the stage changes while `last_modified` does not. It records the most recent action, not the stage change: the next action overwrites it, so a consumer dating a stage change must capture the value the first time it sees the new `stage_id`. Like the other API datetimes it is naive server-local time; the API reports no offset.

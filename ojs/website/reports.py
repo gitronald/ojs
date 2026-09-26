@@ -13,15 +13,14 @@ OJS install and version); the login routes are the standard OJS paths derived fr
 ``OJS_BASE_URL``.
 """
 
-import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Protocol
 
 import httpx
 
-from ojs.errors import OjsError
+from ojs.errors import HttpError, OjsError
+from ojs.fsutil import write_bytes_atomic
 
 __all__ = [
     "ReportAuthError",
@@ -172,31 +171,6 @@ def fetch_report(client: _Client, report_url: str) -> bytes:
     return response.content
 
 
-def _write_bytes(path: Path, data: bytes) -> None:
-    """Write ``data`` to ``path`` atomically (temp file + ``os.replace``).
-
-    Mirrors ``ojs.api.sync.write_json``: a crash or full disk mid-write leaves any
-    previous file intact rather than a truncated one, and the file gets the
-    umask-derived mode rather than mkstemp's owner-only default.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
-    )
-    try:
-        umask = os.umask(0o022)
-        os.umask(umask)
-        os.fchmod(fd, 0o666 & ~umask)
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
-
-
 def download_report(
     *,
     base_url: str,
@@ -209,10 +183,21 @@ def download_report(
 
     ``report_url`` must already be absolute (see :func:`resolve_report_url`). Opens
     one ``httpx.Client``, so the login session cookie carries into the report GET.
-    Returns ``dest``.
+    Returns ``dest``. An HTTP failure (error status, timeout, refused connection)
+    raises :class:`~ojs.errors.HttpError` so the CLI reports it without a
+    traceback.
     """
-    with httpx.Client(follow_redirects=True, timeout=60) as client:
-        login(client, base_url, username, password)
-        content = fetch_report(client, report_url)
-    _write_bytes(dest, content)
+    try:
+        with httpx.Client(follow_redirects=True, timeout=60) as client:
+            login(client, base_url, username, password)
+            content = fetch_report(client, report_url)
+    except httpx.HTTPStatusError as e:
+        raise HttpError(
+            str(e),
+            status_code=e.response.status_code,
+            reason=e.response.reason_phrase,
+        ) from None
+    except httpx.TransportError as e:
+        raise HttpError(f"{e.__class__.__name__}: {e}") from None
+    write_bytes_atomic(dest, content)
     return dest

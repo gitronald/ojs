@@ -221,6 +221,75 @@ def test_download_report_writes_csv_atomically(tmp_path, monkeypatch):
     assert [p.name for p in tmp_path.iterdir()] == ["reviews-20260101.csv"]
 
 
+def test_download_report_http_error_raises_ojs_error(tmp_path, monkeypatch):
+    from ojs.errors import HttpError, OjsError
+
+    client = _FlowClient(report_resp=_Resp(status=503))
+    monkeypatch.setattr(reports.httpx, "Client", lambda **kwargs: client)
+
+    dest = tmp_path / "reviews-20260101.csv"
+    with pytest.raises(HttpError) as exc:
+        reports.download_report(
+            base_url="https://host/index.php/j",
+            username="editor",
+            password="pw",
+            report_url="https://host/index.php/j/report",
+            dest=dest,
+        )
+    # An OjsError, so the CLI prints "Error: ..." instead of a traceback.
+    assert isinstance(exc.value, OjsError)
+    assert exc.value.status_code == 503
+    assert not dest.exists()
+
+
+def test_download_report_transport_error_raises_ojs_error(tmp_path, monkeypatch):
+    from ojs.errors import HttpError
+
+    class _Unreachable:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url):
+            raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(reports.httpx, "Client", lambda **kwargs: _Unreachable())
+    with pytest.raises(HttpError) as exc:
+        reports.download_report(
+            base_url="https://host/index.php/j",
+            username="editor",
+            password="pw",
+            report_url="https://host/index.php/j/report",
+            dest=tmp_path / "r.csv",
+        )
+    assert exc.value.status_code is None
+    assert "ConnectError" in str(exc.value)
+
+
+# --- write_bytes_atomic -------------------------------------------------------
+
+
+def test_write_bytes_atomic_failure_keeps_prior_file_and_cleans_up(
+    tmp_path, monkeypatch
+):
+    from ojs import fsutil
+
+    dest = tmp_path / "report.csv"
+    dest.write_bytes(b"previous")
+
+    def boom(fd):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fsutil.os, "fsync", boom)
+    with pytest.raises(OSError, match="disk full"):
+        fsutil.write_bytes_atomic(dest, b"new content")
+    # The previous file survives intact and no temp file is left behind.
+    assert dest.read_bytes() == b"previous"
+    assert [p.name for p in tmp_path.iterdir()] == ["report.csv"]
+
+
 # --- CLI: reviews fetch / articles fetch --------------------------------------
 
 

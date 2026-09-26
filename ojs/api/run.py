@@ -15,12 +15,11 @@ quiet unless it attaches a handler.
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 from ojs import paths
 from ojs.api import client
@@ -38,7 +37,7 @@ from ojs.api.sync import (
     upsert_json_list,
     write_json,
 )
-from ojs.errors import ConfigError, MissingDataError, OptionError
+from ojs.errors import ConfigError, HttpError, MissingDataError, OptionError
 
 __all__ = [
     "DatasetCount",
@@ -128,12 +127,33 @@ class NormResult:
 
 
 def _require_credentials(base_url: str | None, api_key: str | None) -> tuple[str, str]:
-    """Resolve the API credentials from the arguments, then the environment."""
-    base_url = base_url or os.environ.get("OJS_BASE_URL")
+    """Resolve the API credentials from the arguments, then the environment.
+
+    The base URL loses any trailing slash, since every API URL is built as
+    ``f"{base_url}/api/v1/..."`` and a slash copied from the browser would
+    otherwise double up.
+    """
+    base_url = (base_url or os.environ.get("OJS_BASE_URL") or "").rstrip("/")
     api_key = api_key or os.environ.get("OJS_API_KEY")
     if not base_url or not api_key:
         raise ConfigError("OJS_BASE_URL and OJS_API_KEY must be set (run `ojs init`).")
     return base_url, api_key
+
+
+# Strict `YYYY-MM-DD`: `date.fromisoformat` also accepts compact forms such as
+# `20260101`, which then compare lexically below every `Y-m-d H:i:s` timestamp
+# and make an incremental pull silently fetch nothing.
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _validate_date(flag: str, value: str) -> None:
+    """Raise ``OptionError`` unless ``value`` is a real ``YYYY-MM-DD`` date."""
+    try:
+        if not _DATE_RE.fullmatch(value):
+            raise ValueError(value)
+        date.fromisoformat(value)
+    except ValueError as e:
+        raise OptionError(f"{flag} must be YYYY-MM-DD") from e
 
 
 def run_fetch(
@@ -162,6 +182,8 @@ def run_fetch(
         OptionError: ``full`` combined with ``incremental``/``since``, a date
             argument that is not ``YYYY-MM-DD``, or a ``stats_interval`` outside
             :data:`STATS_INTERVALS`.
+        HttpError: an API request failed after retries (a 403/404 on the stats
+            endpoints is skipped instead, leaving ``stats_ok`` False).
     """
     resolved_base_url, resolved_api_key = _require_credentials(base_url, api_key)
 
@@ -176,10 +198,7 @@ def run_fetch(
         ("--stats-until", stats_until),
     ):
         if value is not None:
-            try:
-                date.fromisoformat(value)
-            except ValueError as e:
-                raise OptionError(f"{flag} must be YYYY-MM-DD") from e
+            _validate_date(flag, value)
 
     # The CLI's enum rejects a bad interval before the call, so this guard only
     # ever fires for a direct caller -- who gets a typed error here instead of
@@ -269,10 +288,17 @@ def run_fetch(
 
     files_count: DatasetCount | None = None
     if files:
-        # Reuse the same skip-unchanged map as publications: a submission whose
-        # dateLastActivity is unchanged keeps its already-stored file records.
+        # File metadata keeps its own watermark (`files_modified`), advanced only
+        # by runs that fetched files. Walking every known submission against it
+        # means a first `--files` after runs without it backfills everything,
+        # while a submission unchanged since the last *files* fetch is skipped.
+        files_known = (
+            {int(k): v for k, v in state.get("files_modified", {}).items()}
+            if do_incremental
+            else None
+        )
         submission_files = client.fetch_all_submission_files(
-            resolved_base_url, resolved_api_key, submissions, known=known
+            resolved_base_url, resolved_api_key, merged_subs, known=files_known
         )
         _, files_count = _save(
             api_out_dir / "submission_files.json",
@@ -336,11 +362,11 @@ def run_fetch(
                 date_start=timeline_since,
                 date_end=stats_until,
             )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code in client.SKIP_STATUSES:
+        except HttpError as e:
+            if e.status_code in client.SKIP_STATUSES:
                 logger.info(
-                    f"  Skipping stats: {e.response.status_code} "
-                    f"{e.response.reason_phrase} (API key may lack stats access)"
+                    f"  Skipping stats: {e.status_code} {e.reason} "
+                    "(API key may lack stats access)"
                 )
             else:
                 raise
@@ -388,6 +414,12 @@ def run_fetch(
                 now if (stats and stats_ok) else state.get("stats_last_sync")
             ),
             "submission_modified": build_submission_modified(merged_subs),
+            # Advance the file-metadata watermark only when files were fetched.
+            "files_modified": (
+                build_submission_modified(merged_subs)
+                if files
+                else state.get("files_modified", {})
+            ),
         }
         save_sync_state(state_path, new_state)
         tracked = len(new_state["submission_modified"])
@@ -446,6 +478,8 @@ def run_download(
             ``base_url``/``api_key``.
         OptionError: ``file_type`` is not one of the known stage groups.
         MissingDataError: a JSON dump the run needs is not on disk.
+        HttpError: an API request failed after retries (403/404 on one
+            submission's file list or one file is skipped and recorded instead).
     """
     resolved_base_url, resolved_api_key = _require_credentials(base_url, api_key)
 
@@ -502,7 +536,7 @@ def run_download(
                 )
             if missing:
                 logger.warning(
-                    f"Warning: no stored file metadata for submission id(s) "
+                    f"WARNING: no stored file metadata for submission id(s) "
                     f"{sorted(missing)}; run with --fetch to include them. "
                     "Processing the rest."
                 )

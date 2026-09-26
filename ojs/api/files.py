@@ -20,9 +20,9 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from ojs.api.client import SKIP_STATUSES, _http_client, _request_with_retry
+from ojs.errors import HttpError
+from ojs.fsutil import write_bytes_atomic
 from ojs.utils import localized
 
 logger = logging.getLogger(__name__)
@@ -208,12 +208,12 @@ def download_files(
                     response = _request_with_retry(
                         client, target["url"], {"apiToken": api_key}
                     )
-                except httpx.HTTPStatusError as e:
+                except HttpError as e:
                     # OJS returns 403/404 per file (a stage the key cannot view,
                     # or a file that has since been removed). Record it and keep
                     # going rather than aborting the whole run; other statuses
                     # are unexpected and propagate.
-                    if e.response.status_code in SKIP_STATUSES:
+                    if e.status_code in SKIP_STATUSES:
                         failed_records.append(
                             {
                                 "file_id": file_id,
@@ -223,23 +223,21 @@ def download_files(
                                 "stage": target["stage"],
                                 "review_round_id": target["review_round_id"],
                                 "url": target["url"],
-                                "status": e.response.status_code,
-                                "reason": e.response.reason_phrase,
+                                "status": e.status_code,
+                                "reason": e.reason,
                             }
                         )
                         logger.info(
-                            f"  Skipping file {file_id}: {e.response.status_code} "
-                            f"{e.response.reason_phrase}"
+                            f"  Skipping file {file_id}: {e.status_code} {e.reason}"
                         )
                         continue
                     raise
                 content = response.content
-                # `bytes` below is this in-memory response length; write_bytes is a
-                # single call, so a partial file without a raised error is not
-                # expected (an interrupted call raises and skips the manifest flush).
+                # `bytes` below is this in-memory response length.
                 size = len(content)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(content)
+                # Atomic, so an interrupted write never leaves a truncated file
+                # at `dest` that the skip check above would accept as complete.
+                write_bytes_atomic(dest, content)
 
                 record = {
                     "file_id": file_id,

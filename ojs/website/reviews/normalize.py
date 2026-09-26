@@ -11,7 +11,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ojs.utils import strip_html
+from ojs.utils import log_sample, strip_html
 from ojs.website.reviews.schemas import Reviews
 
 logger = logging.getLogger(__name__)
@@ -51,10 +51,11 @@ def normalize_reviews(input_file: Path, output_dir: Path) -> dict[str, pl.DataFr
     logger.info(f"\nReviews: {df.shape[0]} rows, {df.shape[1]} columns")
     logger.info(f"Saved to {output_file}")
 
-    if df.shape[0] > 0:
-        core_cols = ["submission_id", "round", "username", "recommendation", "declined"]
-        available = [c for c in core_cols if c in df.columns]
-        logger.info("\nSample from reviews table:")
-        logger.info(df.select(available).head(3))
+    log_sample(
+        logger,
+        df,
+        "reviews",
+        ["submission_id", "round", "username", "recommendation", "declined"],
+    )
 
     return {"reviews": df}
