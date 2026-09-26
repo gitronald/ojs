@@ -339,8 +339,9 @@ Three conventions make these usable from another codebase:
 - **Exceptions, not exit codes.** Library code raises `ojs.errors.OjsError` —
   `ConfigError` (missing credentials or report settings), `OptionError`
   (contradictory or malformed arguments), `MissingDataError` (a required input is
-  not on disk). The CLI catches these and maps them back to its usual messages
-  and exit codes.
+  not on disk), `HttpError` (an API request or report download failed after
+  retries; carries `status_code` and `reason`). The CLI catches these and maps
+  them back to its usual messages and exit codes.
 
 Progress goes to the `ojs` logger, which the package fits with a `NullHandler`,
 so an embedding caller sees nothing on the console by default. To get the same
