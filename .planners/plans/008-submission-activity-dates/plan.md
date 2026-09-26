@@ -5,7 +5,7 @@ status: active
 branch: feature/submission-activity-dates
 created: 2026-09-25T08:59:28-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/42
 ---
 
 # Add the last-activity date to the submissions table
@@ -60,3 +60,31 @@ the latest activity was.
   `reviewRounds`; assert the dtype and the null handling.
 - Regenerate `table_schemas.csv` via `ojs api schema` and note the new
   columns in `CHANGELOG.md` under `[Unreleased]`.
+
+## Log
+
+- 2026-09-25: Activated on `dev`, branch `feature/submission-activity-dates`,
+  draft PR #42.
+- **Investigation.** No live OJS instance or fetched dump was available in the
+  working environment, so the three "investigate first" checks were answered
+  from the bundled `ojs/api/swagger.json` snapshot rather than by exercising a
+  test submission:
+  1. *What moves `dateLastActivity`* — not measured. The swagger describes it
+     as "the last time activity was recorded related to this submission" and
+     `lastModified` as the last modification "to this submission or any of its
+     associated objects". Which concrete actions bump each is left as an open
+     question on the column description's wording ("latest activity").
+  2. *Timezone* — the API validates all three fields as `date:Y-m-d H:i:s`
+     with no offset, so they are naive server-local timestamps. Documented as
+     such on `last_modified` and `date_last_activity`; not verified against a
+     server's configured zone.
+  3. *Better sources* — the spec exposes no editorial-decisions or event-log
+     endpoint, and `ReviewRound` carries only `id`, `round`, `stageId`,
+     `statusId`, `status` (no date). Nothing better exists in this API version,
+     so the `review_round` / `review_round_status` columns were added.
+- **Change.** `reviewRounds` is not an `apiSummary` field, so it rides only on
+  the extended `/_submissions` records. `normalize_submissions` therefore gains
+  an optional `submissions_ext` argument (wired in `normalize_api`); the latest
+  round is the highest `round`, ties broken by highest `stageId`, since round
+  numbers restart per review stage. Columns land after `last_modified` and
+  `stage_id`; docs export verified via `ojs api schema` into a scratch dir.
