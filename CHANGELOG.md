@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-26
+
 - Fix the CLI ignoring a project's `.env` when `ojs` is installed as a package rather than in editable mode. The file was searched for from the installed module's directory instead of the current directory; it is now read from the current directory as documented, with the `$OJS_CONFIG_PATH` / `~/.config/ojs/.env` fallback unchanged.
 - Fix HTTP failures printing a Python traceback. An error status or connection failure from the OJS API or the website report download now surfaces as `Error: <message>` with exit code 1, via a new `ojs.errors.HttpError` (an `OjsError` carrying `status_code` and `reason`). Library callers that caught `httpx.HTTPStatusError` from `ojs.api` should catch `HttpError` instead.
 - Retry rate-limit and transient server responses (429, 500, 502, 503, 504) with backoff, honoring an integer `Retry-After` (capped at 60 seconds), instead of aborting on the first one. Previously only connection-level errors were retried.
