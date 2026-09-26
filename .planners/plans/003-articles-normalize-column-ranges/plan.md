@@ -1,11 +1,11 @@
 ---
 id: 3
 slug: articles-normalize-column-ranges
-status: active
+status: done
 branch: feature/articles-normalize-column-ranges
 created: 2026-07-08T18:39:28-07:00
-concluded:
-pr:
+concluded: 2026-09-25T23:43:53-07:00
+pr: https://github.com/gitronald/ojs/pull/40
 ---
 
 # Fix articles normalize silently dropping editor and decision columns
@@ -53,3 +53,55 @@ widens to cover them.
 - Reviews normalization is unaffected — it has no numbered-column unpivot.
 - Blocked on re-collecting representative article data elsewhere before reworking
   the schema; no code changes until then.
+
+## Log
+
+- 2026-09-25: Unblocked. Two real Articles Report exports were available for
+  verification: an older one within the old caps (15 authors, 4 editors,
+  decisions 1-9) and a newer one carrying a 5th editor and decisions 10 and 11.
+  Running the old normalizer on the newer export reproduced the report exactly:
+  42 unmapped columns, editors capped at 4, decisions at 9.
+- Implemented the fix at the source in `ojs/website/articles/normalize.py`:
+  removed `AUTHOR_RANGE` / `EDITOR_RANGE` / `DECISION_RANGE` and added
+  `entity_numbers` (reads `<base> (Author|Editor N)` indices off the headers,
+  restricted to bases the schema maps) and `decision_slots` (pairs every
+  `Editor Decision D  (Editor E)` with its `Date decided` companion, ordered by
+  editor then decision). The unpivot, the first-author `author_count`, the
+  decisions extraction, and the unmapped-column check all consume those, so the
+  schema's `(... N)` patterns stay the single source of truth with no cap.
+- Schema descriptions no longer state the old bounds (`1-15`, `1-4`, `1-9`).
+- Verification on the newer export: no unmapped-column warning; two 5th-editor
+  rows and two decisions numbered above 9 recovered; every row within the old
+  caps byte-identical to the pre-fix output across all four tables. The older
+  export normalizes identically before and after.
+- Tests: an end-to-end fixture with 16 authors, 5 editors, and decisions 10 and
+  11 (including a date-only slot), plus unit tests for `entity_numbers`,
+  `decision_slots`, and the uncapped claimed-column set.
+- 2026-09-25: Review follow-up. The close-gate review (medium) found no
+  correctness defects. Two maintenance findings were actioned in one commit:
+  `_claimed_columns` had re-implemented the entity-header-plus-schema test that
+  `entity_numbers` already encoded, and `_ENTITY_HEADER` also partially matched
+  a decision header (`Editor Decision 11  (Editor 1)` parses as base
+  `Editor Decision 11 `), relying on the schema lookup to filter it. Both now go
+  through a single `_entity_index` helper that excludes decision headers up
+  front, with `test_entity_numbers_excludes_decision_headers_up_front` as the
+  regression test. Conscious no-op: the submissions and authors extractors each
+  scan the headers once for author indices; the inputs are identical so they
+  cannot disagree, and the cost is negligible.
+
+## Retrospective
+
+- The stub plan called for deriving ranges from the headers, and that is what
+  shipped; the only refinement was pairing decision/date headers into explicit
+  slots instead of probing each (editor, decision) pair for existence.
+- Having two real exports, one within the old caps and one past them, made the
+  verification decisive: byte-identical output for the old rows proved the
+  change was purely additive, and the wide export proved the drop was gone.
+- The reported symptom (42 unmapped columns) was already the right signal; the
+  fix was to let the pipeline widen rather than to quiet the warning. Surfacing
+  unmapped columns instead of dropping silently paid for itself here.
+- Blocking the plan on representative data, rather than guessing at bigger
+  caps, avoided shipping a second arbitrary limit.
+- Sharing the header-matching rule between extraction and the unmapped-column
+  check should have been part of the first cut; the review caught the
+  duplication before it could drift.
