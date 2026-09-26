@@ -32,17 +32,52 @@ def _author_seq_key(author: dict[str, Any]) -> float:
     return seq if isinstance(seq, (int, float)) else 0
 
 
+def _round_sort_key(rnd: dict[str, Any]) -> tuple[int, int]:
+    """Sort key ordering review rounds by ``round``, then ``stageId``.
+
+    Round numbers restart per stage (internal vs. external review), so the stage
+    breaks a tie between equal round numbers. Null/missing values fold to 0.
+    """
+    round_no = rnd.get("round")
+    stage_id = rnd.get("stageId")
+    return (
+        round_no if isinstance(round_no, int) else 0,
+        stage_id if isinstance(stage_id, int) else 0,
+    )
+
+
+def latest_review_round(sub_ext: dict[str, Any]) -> dict[str, Any]:
+    """Return the latest review round on an extended submission record.
+
+    The ``reviewRounds`` list carries no date, so "latest" is the round with the
+    highest ``round`` number, breaking ties on the highest ``stageId``. Returns
+    ``{}`` when the record has no rounds (missing key, JSON ``null``, or ``[]``).
+    """
+    rounds = sub_ext.get("reviewRounds") or []
+    if not rounds:
+        return {}
+    return max(rounds, key=_round_sort_key)
+
+
 def normalize_submissions(
-    submissions: list[dict[str, Any]], publications: list[dict[str, Any]]
+    submissions: list[dict[str, Any]],
+    publications: list[dict[str, Any]],
+    submissions_ext: list[dict[str, Any]] | None = None,
 ) -> pl.DataFrame:
-    """Build submissions table from API submissions and publication details."""
-    # Index publications by submission_id
+    """Build submissions table from API submissions and publication details.
+
+    ``submissions_ext`` (the ``/_submissions`` records) supplies the latest review
+    round; when omitted, ``review_round`` and ``review_round_status`` are null.
+    """
+    # Index publications and extended records by submission_id
     pub_by_sub = {p["_submission_id"]: p for p in publications}
+    ext_by_sub = {s["id"]: s for s in submissions_ext or []}
 
     rows: list[dict[str, Any]] = []
     for sub in submissions:
         pub_summary = sub["publications"][0] if sub.get("publications") else {}
         pub_full = pub_by_sub.get(sub["id"], {})
+        latest_round = latest_review_round(ext_by_sub.get(sub["id"], {}))
 
         # Abstract from full publication (HTML -> plain text)
         abstract = localized(pub_full.get("abstract"))
@@ -83,9 +118,12 @@ def normalize_submissions(
                 "doi": pub_summary.get("pub-id::doi", None),
                 "date_submitted": sub.get("dateSubmitted", None),
                 "last_modified": sub.get("lastModified", None),
+                "date_last_activity": sub.get("dateLastActivity", None),
                 # API-only fields (not available in CSV export)
                 "date_published": pub_summary.get("datePublished", None),
                 "stage_id": sub.get("stageId", None),
+                "review_round": latest_round.get("round", None),
+                "review_round_status": latest_round.get("status", None),
                 "issue_id": pub_full.get("issueId", None),
             }
         )
@@ -96,8 +134,9 @@ def normalize_submissions(
     df = pl.DataFrame(rows)
     df = df.with_columns(strip_html(pl.col("abstract")).alias("abstract"))
 
-    # Schema-driven cast parses date_submitted/last_modified (Datetime) and
-    # date_published (Date), and enforces the integer columns' dtypes.
+    # Schema-driven cast parses date_submitted/last_modified/date_last_activity
+    # (Datetime) and date_published (Date), and enforces the integer columns'
+    # dtypes.
     df = schemas.Submissions.apply(df)
     return df.sort("submission_id")
 
@@ -433,7 +472,7 @@ def normalize_api(
 
     logger.info("Normalizing API data...")
 
-    subs_df = normalize_submissions(submissions, publications)
+    subs_df = normalize_submissions(submissions, publications, submissions_ext)
     logger.info(f"Submissions: {subs_df.shape[0]} rows, {subs_df.shape[1]} columns")
 
     pubs_df = normalize_publications(subs_df, publications)

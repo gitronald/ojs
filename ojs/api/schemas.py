@@ -65,12 +65,38 @@ class Submissions(Table):
         pl.Datetime("us"), "Datetime the submission was submitted.", "dateSubmitted"
     )
     last_modified = Column(
-        pl.Datetime("us"), "Datetime the submission was last modified.", "lastModified"
+        pl.Datetime("us"),
+        "Datetime the submission or one of its associated objects was last "
+        "modified. Naive server-local time (the API reports no offset).",
+        "lastModified",
+    )
+    date_last_activity = Column(
+        pl.Datetime("us"),
+        "Datetime of the LATEST editorial activity recorded on the submission "
+        "(stage change, review round, assignment, discussion, file upload). "
+        "Naive server-local time. This is the most recent activity, not the "
+        "stage-change date: the next action overwrites it, so a consumer that "
+        "needs the date a stage was entered must capture this value the first "
+        "time it sees the new stage_id.",
+        "dateLastActivity",
     )
     date_published = Column(
         pl.Date, "Publication date (date-only).", "publications[0].datePublished"
     )
     stage_id = Column(pl.Int64, "Current editorial workflow stage id.", "stageId")
+    review_round = Column(
+        pl.Int64,
+        "Number of the latest review round opened (highest round, then highest "
+        "stage); null when no round has been opened. From the extended "
+        "submissions endpoint.",
+        "_submissions[].reviewRounds[].round",
+    )
+    review_round_status = Column(
+        pl.String,
+        "Human-readable status of the latest review round, e.g. 'Waiting for "
+        "reviewers to be assigned.'; null when no round has been opened.",
+        "_submissions[].reviewRounds[].status",
+    )
     issue_id = Column(
         pl.Int64, "Issue id the publication belongs to.", "publications[].issueId"
     )

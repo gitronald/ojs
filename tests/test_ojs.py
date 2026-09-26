@@ -1,5 +1,6 @@
 """Tests for ojs."""
 
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -9,6 +10,7 @@ import pytest
 from ojs.api.client import PAGE_SIZE, _paginate, _stats_params
 from ojs.api.normalize import (
     _build_email_to_user_id,
+    latest_review_round,
     normalize_authors,
     normalize_publication_stats,
     normalize_publications,
@@ -179,6 +181,74 @@ def test_normalize_submissions_handles_null_authors():
     pubs = [{"_submission_id": 1, "authors": None, "keywords": None, "abstract": None}]
     df = normalize_submissions(subs, pubs)  # must not raise on authors: null
     assert df["author_count"][0] is None  # 0 authors -> null
+
+
+def test_normalize_submissions_date_last_activity_and_review_round():
+    subs = [
+        {
+            "id": 1,
+            "dateLastActivity": "2024-06-15 08:30:00",
+            "lastModified": "2024-06-01 00:00:00",
+            "stageId": 3,
+            "publications": [{"sectionId": 1, "fullTitle": {"en_US": "T"}}],
+        },
+        # No activity date, no extended record: both stay null.
+        {"id": 2, "publications": [{"sectionId": 1, "fullTitle": {"en_US": "U"}}]},
+    ]
+    pubs = [
+        {"_submission_id": 1, "keywords": None, "abstract": None, "authors": []},
+        {"_submission_id": 2, "keywords": None, "abstract": None, "authors": []},
+    ]
+    ext = [
+        {
+            "id": 1,
+            "reviewRounds": [
+                {"id": 10, "round": 1, "stageId": 3, "statusId": 6, "status": "Old"},
+                {"id": 11, "round": 2, "stageId": 3, "statusId": 4, "status": "New"},
+            ],
+        }
+    ]
+    df = normalize_submissions(subs, pubs, ext)
+    assert df.schema["date_last_activity"] == pl.Datetime("us")
+    assert df.schema["review_round"] == pl.Int64
+    assert df.schema["review_round_status"] == pl.String
+    assert df["date_last_activity"][0] == datetime(2024, 6, 15, 8, 30)
+    assert df["review_round"][0] == 2
+    assert df["review_round_status"][0] == "New"
+    assert df["date_last_activity"][1] is None
+    assert df["review_round"][1] is None
+    assert df["review_round_status"][1] is None
+
+
+def test_normalize_submissions_review_round_null_and_empty():
+    subs = [
+        {"id": 1, "publications": [{"sectionId": 1, "fullTitle": {"en_US": "T"}}]},
+        {"id": 2, "publications": [{"sectionId": 1, "fullTitle": {"en_US": "U"}}]},
+    ]
+    pubs = [{"_submission_id": i, "authors": []} for i in (1, 2)]
+    # Explicit JSON null and an empty list must not raise; both yield nulls.
+    ext = [{"id": 1, "reviewRounds": None}, {"id": 2, "reviewRounds": []}]
+    df = normalize_submissions(subs, pubs, ext)
+    assert df["review_round"].to_list() == [None, None]
+    assert df["review_round_status"].to_list() == [None, None]
+    # Omitting the extended records entirely keeps the columns (all null).
+    df2 = normalize_submissions(subs, pubs)
+    assert "review_round" in df2.columns
+    assert df2["review_round"].to_list() == [None, None]
+
+
+def test_latest_review_round_breaks_round_tie_on_stage():
+    # Round numbers restart per stage: internal review round 1 (stage 2) and
+    # external review round 1 (stage 3) tie on `round`; the later stage wins.
+    ext = {
+        "reviewRounds": [
+            {"round": 1, "stageId": 3, "status": "External"},
+            {"round": 1, "stageId": 2, "status": "Internal"},
+            {"round": None, "stageId": None, "status": "Broken"},
+        ]
+    }
+    assert latest_review_round(ext)["status"] == "External"
+    assert latest_review_round({}) == {}
 
 
 def test_normalize_authors_handles_null_authors_list():
