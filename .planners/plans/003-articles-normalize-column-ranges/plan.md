@@ -5,7 +5,7 @@ status: active
 branch: feature/articles-normalize-column-ranges
 created: 2026-07-08T18:39:28-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/40
 ---
 
 # Fix articles normalize silently dropping editor and decision columns
