@@ -6,9 +6,9 @@ four stats/files tables are also test-covered); the ``source`` field records the
 originating API JSON field (or ``None`` for derived columns) and descriptions
 draw on ``swagger.json``.
 
-``Submissions`` and ``Publications`` are emitted unconditionally with
-``authors`` and ``review_assignments``; the remaining four tables are emitted
-only when their optional JSON dumps are present.
+``Submissions``, ``Publications``, ``Authors``, ``ReviewAssignments``,
+``Users``, and ``UserGroups`` are emitted unconditionally; the remaining four
+tables are emitted only when their optional JSON dumps are present.
 """
 
 import polars as pl
@@ -20,6 +20,8 @@ __all__ = [
     "Publications",
     "Authors",
     "ReviewAssignments",
+    "Users",
+    "UserGroups",
     "SubmissionFiles",
     "PublicationStats",
     "ViewsTimeline",
@@ -193,6 +195,43 @@ class ReviewAssignments(Table):
     )
 
 
+class Users(Table):
+    name = "users"
+    description = "One row per OJS user account, active and disabled"
+
+    user_id = Column(pl.Int64, "User account identifier (primary key).", "id")
+    username = Column(pl.String, "Login username.", "userName")
+    email = Column(pl.String, "Account email address.", "email")
+    full_name = Column(pl.String, "Full name in the primary locale.", "fullName")
+    orcid = Column(pl.String, "ORCID iD as stored; null if none is set.", "orcid")
+    disabled = Column(pl.Boolean, "Whether the account is disabled.", "disabled")
+
+
+class UserGroups(Table):
+    name = "user_groups"
+    description = "One row per user per user group the account belongs to"
+
+    user_id = Column(pl.Int64, "User account identifier (joins users).", "id")
+    group_id = Column(pl.Int64, "User group identifier.", "groups[].id")
+    group_name = Column(
+        pl.String,
+        "User group name (en_US, else any locale); install-specific.",
+        "groups[].name",
+    )
+    group_abbrev = Column(
+        pl.String,
+        "User group abbreviation (en_US, else any locale).",
+        "groups[].abbrev",
+    )
+    role_id = Column(
+        pl.Int64,
+        "OJS role id of the group: 16 manager, 17 sub editor, 65536 author, "
+        "4096 reviewer, 4097 assistant, 1048576 reader, 2097152 subscription "
+        "manager, 1 site admin.",
+        "groups[].roleId",
+    )
+
+
 class SubmissionFiles(Table):
     name = "submission_files"
     description = "Current submission files with stage, review round, and revision info"
@@ -294,6 +333,8 @@ API_TABLES: tuple[type[Table], ...] = (
     Publications,
     Authors,
     ReviewAssignments,
+    Users,
+    UserGroups,
     SubmissionFiles,
     PublicationStats,
     ViewsTimeline,

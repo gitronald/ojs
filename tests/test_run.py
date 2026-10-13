@@ -196,16 +196,19 @@ def test_api_run_norm_returns_tables_and_row_counts(tmp_path):
     result = api_run.run_norm(api_dir=api_dir)
 
     assert result.out_dir == api_dir / "normalized"
-    # The four required tables, plus publication_stats because its dump exists.
+    # The six required tables, plus publication_stats because its dump exists.
     assert result.tables == [
         "submissions",
         "publications",
         "authors",
         "review_assignments",
+        "users",
+        "user_groups",
         "publication_stats",
     ]
     assert result.rows["submissions"] == 1
     assert result.rows["authors"] == 1
+    assert result.rows["users"] == 1
     # Row counts describe what was written, so they match the CSVs on disk.
     for name, rows in result.rows.items():
         assert pl.read_csv(result.out_dir / f"{name}.csv").height == rows
