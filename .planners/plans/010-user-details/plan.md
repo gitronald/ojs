@@ -5,7 +5,7 @@ status: active
 branch: feature/user-details
 created: 2026-10-12T20:01:57-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/47
 ---
 
 # Add country, affiliation, and registration date to the users table
@@ -81,3 +81,4 @@ Record both answers in the Log before choosing a path.
   - Question 2: the Statistics > Users page is a Vue form (`usersReportForm`) that POSTs `userGroupIds[]` to `{base}/stats/users`. The POST only returns a URL: the export itself is `GET {base}/api/v1/users/report?userGroupIds[]=...`, which accepts the API token (no login needed) and returns one CSV. Its columns are `ID, Given Name, Family Name, Email, Phone, Country, Mailing Address, Date registered, Updated`, then `Site Admin` and one Yes/No column per user group, so they vary with the install's groups. It returned 1090 rows against 1153 accounts; the 63-account gap was not explained (not verified whether they are disabled or groupless). It carries no affiliation, ORCID, or last-login date.
   Decision: the API details path. The report lacks affiliation (a goal of this plan) and last login, and misses accounts; the detail fetch costs about 2 minutes for every field.
   Deviation from the plan: no incremental skip of already-fetched users. `dateLastLogin` and `country` change with no recency signal on users, so a skip would leave stale values; each `--user-details` run refetches the selected users instead, and `--user-roles` keeps the count down. `date_last_login` is added beside the three planned columns.
+- **2026-10-12T20:16:07-07:00** — PR opened: https://github.com/gitronald/ojs/pull/47
