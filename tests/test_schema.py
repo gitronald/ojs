@@ -177,7 +177,24 @@ def _api_fixtures() -> dict[str, Any]:
     return {
         "submissions": [sub],
         "publications": [pub],
-        "users": [{"id": 42, "email": "a@x.org"}],
+        "users": [
+            {
+                "id": 42,
+                "userName": "jdoe",
+                "email": "a@x.org",
+                "fullName": "Jane Doe",
+                "orcid": "https://orcid.org/0000-0000-0000-0000",
+                "disabled": False,
+                "groups": [
+                    {
+                        "id": 14,
+                        "name": {"en_US": "Reviewer"},
+                        "abbrev": {"en_US": "R"},
+                        "roleId": 4096,
+                    }
+                ],
+            }
+        ],
         "subs_ext": [
             {
                 "id": 1,
@@ -250,6 +267,8 @@ def test_api_schemas_match_normalized_output():
         (N.normalize_publications(subs, fx["publications"]), S.Publications),
         (N.normalize_authors(fx["publications"], fx["users"]), S.Authors),
         (N.normalize_review_assignments(fx["subs_ext"]), S.ReviewAssignments),
+        (N.normalize_users(fx["users"]), S.Users),
+        (N.normalize_user_groups(fx["users"]), S.UserGroups),
         (N.normalize_submission_files(fx["files"]), S.SubmissionFiles),
         (N.normalize_publication_stats(fx["stats"]), S.PublicationStats),
         (N.normalize_views_timeline(fx["timeline"]), S.ViewsTimeline),

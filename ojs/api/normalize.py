@@ -216,6 +216,74 @@ def normalize_authors(
     return df
 
 
+def normalize_users(
+    users: list[dict[str, Any]],
+    user_details: list[dict[str, Any]] | None = None,
+) -> pl.DataFrame:
+    """Build a users table, one row per account, from /users summary records.
+
+    The list endpoint returns a summary with no country, affiliation, or dates;
+    ``user_details`` (the /users/{id} records from ``--user-details``) supplies
+    those, with ``details_fetched_at`` saying when each record was fetched. An
+    account without a detail record keeps them null. Group
+    memberships go to :func:`normalize_user_groups`.
+    """
+    details_by_id = {d["id"]: d for d in user_details or []}
+    rows: list[dict[str, Any]] = []
+    for u in users:
+        detail = details_by_id.get(u["id"], {})
+        rows.append(
+            {
+                "user_id": u["id"],
+                "username": u.get("userName") or None,
+                "email": u.get("email") or None,
+                "full_name": u.get("fullName") or None,
+                "orcid": u.get("orcid") or None,
+                "disabled": u.get("disabled"),
+                "country": detail.get("country") or None,
+                "affiliation": localized(detail.get("affiliation"), fallback_any=True),
+                "date_registered": detail.get("dateRegistered") or None,
+                "date_last_login": detail.get("dateLastLogin") or None,
+                "details_fetched_at": detail.get("_fetched_at"),
+            }
+        )
+
+    if not rows:
+        return pl.DataFrame(schema=schemas.Users.polars_schema())
+
+    df = schemas.Users.apply(pl.DataFrame(rows, infer_schema_length=None))
+    return df.sort("user_id")
+
+
+def normalize_user_groups(users: list[dict[str, Any]]) -> pl.DataFrame:
+    """Build a long table of user group memberships, one row per user and group.
+
+    User groups are install-specific (an install renames, adds, and removes
+    them), so they are rows rather than one column per group. Group names are
+    multilingual; the en_US value is used, else any non-empty locale, so an
+    install without English names still gets a label.
+    """
+    rows: list[dict[str, Any]] = []
+    for u in users:
+        # `or []` guards a missing key and an explicit JSON null.
+        for group in u.get("groups") or []:
+            rows.append(
+                {
+                    "user_id": u["id"],
+                    "group_id": group.get("id"),
+                    "group_name": localized(group.get("name"), fallback_any=True),
+                    "group_abbrev": localized(group.get("abbrev"), fallback_any=True),
+                    "role_id": group.get("roleId"),
+                }
+            )
+
+    if not rows:
+        return pl.DataFrame(schema=schemas.UserGroups.polars_schema())
+
+    df = schemas.UserGroups.apply(pl.DataFrame(rows, infer_schema_length=None))
+    return df.sort("user_id", "group_id")
+
+
 # Publication-detail columns built from publications.json, in schemas.Publications
 # (the rest of that table comes from the submissions frame).
 _PUBLICATION_FIELDS = (
@@ -480,6 +548,7 @@ def normalize_api(
     views_timeline: list[dict[str, Any]] | None = None,
     views_timeline_totals: list[dict[str, Any]] | None = None,
     submission_files: list[dict[str, Any]] | None = None,
+    user_details: list[dict[str, Any]] | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Run the full API normalization pipeline.
 
@@ -504,11 +573,20 @@ def normalize_api(
         f"Review assignments: {reviews_df.shape[0]} rows, {reviews_df.shape[1]} columns"
     )
 
+    users_df = normalize_users(users, user_details)
+    logger.info(f"Users: {users_df.shape[0]} rows, {users_df.shape[1]} columns")
+
+    user_groups_df = normalize_user_groups(users)
+    rows, cols = user_groups_df.shape
+    logger.info(f"User groups: {rows} rows, {cols} columns")
+
     tables = {
         "submissions": subs_df,
         "publications": pubs_df,
         "authors": authors_df,
         "review_assignments": reviews_df,
+        "users": users_df,
+        "user_groups": user_groups_df,
     }
 
     if submission_files is not None:

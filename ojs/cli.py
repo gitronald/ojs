@@ -283,6 +283,19 @@ def api_fetch(
     full: bool = typer.Option(
         False, "--full", help="Force a complete pull and reset incremental sync state."
     ),
+    user_details: bool = typer.Option(
+        False,
+        "--user-details/--no-user-details",
+        help="Fetch each user's full record (country, affiliation, registration "
+        "and last-login dates); one request per user, merged by id into "
+        "user_details.json.",
+    ),
+    user_roles: list[int] = typer.Option(
+        None,
+        "--user-roles",
+        help="Limit --user-details to accounts holding this OJS role id "
+        "(repeatable), e.g. 4096 for reviewers.",
+    ),
 ) -> None:
     """Fetch data from the OJS API and save raw JSON.
 
@@ -309,6 +322,8 @@ def api_fetch(
             incremental=incremental,
             since=since,
             full=full,
+            user_details=user_details,
+            user_roles=user_roles,
         )
     except OjsError as e:
         raise _fail(e) from e

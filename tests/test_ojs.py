@@ -2315,3 +2315,191 @@ def test_schema_commands_write_table_docs(tmp_path, monkeypatch, group, env_var,
     docs = pl.read_csv(tmp_path / rel)
     assert docs.height > 0
     assert "in_output" in docs.columns
+
+
+# --- users / user groups -------------------------------------------------------
+
+
+def _user(uid, **fields):
+    base = {
+        "id": uid,
+        "userName": f"user{uid}",
+        "email": f"user{uid}@example.com",
+        "fullName": f"Test User {uid}",
+        "orcid": "",
+        "disabled": False,
+        "groups": [],
+    }
+    return base | fields
+
+
+def test_normalize_users_one_row_per_account_sorted():
+    from ojs.api.normalize import normalize_users
+
+    users = [
+        _user(7, disabled=True),
+        _user(3, orcid="https://orcid.org/0000-0002-1825-0097"),
+    ]
+    df = normalize_users(users)
+    assert df["user_id"].to_list() == [3, 7]
+    assert df["disabled"].to_list() == [False, True]
+    assert df["orcid"].to_list() == ["https://orcid.org/0000-0002-1825-0097", None]
+    assert df["email"].to_list() == ["user3@example.com", "user7@example.com"]
+    assert df["username"][0] == "user3"
+    assert df["full_name"][0] == "Test User 3"
+
+
+def test_normalize_users_empty_keeps_schema():
+    from ojs.api import schemas
+    from ojs.api.normalize import normalize_users
+
+    df = normalize_users([])
+    assert df.height == 0
+    assert dict(df.schema) == dict(schemas.Users.polars_schema())
+
+
+def test_normalize_user_groups_unpivots_memberships():
+    from ojs.api.normalize import normalize_user_groups
+
+    reviewer = {
+        "id": 14,
+        "name": {"en_US": "Reviewer"},
+        "abbrev": {"en_US": "R"},
+        "roleId": 4096,
+    }
+    author = {
+        "id": 13,
+        "name": {"en_US": "Author"},
+        "abbrev": {"en_US": "AU"},
+        "roleId": 65536,
+    }
+    users = [
+        _user(2, groups=[reviewer, author]),
+        _user(1, groups=[reviewer]),
+        _user(3, groups=None),  # explicit null: no rows, no crash
+        _user(4),  # no memberships
+    ]
+    df = normalize_user_groups(users)
+    assert df.select("user_id", "group_id").rows() == [(1, 14), (2, 13), (2, 14)]
+    assert df.filter(pl.col("group_id") == 13)["group_name"].to_list() == ["Author"]
+    assert set(df["role_id"].to_list()) == {4096, 65536}
+
+
+def test_normalize_user_groups_falls_back_to_any_locale():
+    from ojs.api.normalize import normalize_user_groups
+
+    group = {
+        "id": 5,
+        "name": {"en_US": "", "fr_CA": "Evaluateur"},
+        "abbrev": {"fr_CA": "EV"},
+        "roleId": 4096,
+    }
+    df = normalize_user_groups([_user(1, groups=[group])])
+    assert df["group_name"][0] == "Evaluateur"
+    assert df["group_abbrev"][0] == "EV"
+
+
+def test_normalize_user_groups_empty_keeps_schema():
+    from ojs.api import schemas
+    from ojs.api.normalize import normalize_user_groups
+
+    df = normalize_user_groups([_user(1)])
+    assert df.height == 0
+    assert dict(df.schema) == dict(schemas.UserGroups.polars_schema())
+
+
+def test_fetch_users_requests_active_and_disabled(monkeypatch):
+    from contextlib import nullcontext
+
+    from ojs.api import client as client_mod
+
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(client_mod, "_http_client", lambda: nullcontext(None))
+    monkeypatch.setattr(
+        client_mod,
+        "_paginate",
+        lambda client, url, params, **kw: seen.append(params) or [],
+    )
+    client_mod.fetch_users("http://base", "key")
+    # The endpoint defaults to active accounts only.
+    assert seen == [{"apiToken": "key", "status": "all"}]
+
+
+def test_normalize_users_joins_user_details():
+    from datetime import datetime
+
+    from ojs.api.normalize import normalize_users
+
+    details = [
+        {
+            "id": 1,
+            "country": "",
+            "affiliation": {"en_US": "", "fr_CA": "Universite Exemple"},
+            "dateRegistered": "2023-05-01 10:00:00",
+            "dateLastLogin": "2026-01-02 03:04:05",
+            "_fetched_at": "2026-10-12 20:00:00",
+        }
+    ]
+    df = normalize_users([_user(1), _user(2)], details)
+    one, two = df.rows(named=True)
+    assert one["country"] is None  # empty string reads as unset
+    assert one["affiliation"] == "Universite Exemple"
+    assert one["date_registered"] == datetime(2023, 5, 1, 10, 0, 0)
+    assert one["date_last_login"] == datetime(2026, 1, 2, 3, 4, 5)
+    assert one["details_fetched_at"] == datetime(2026, 10, 12, 20, 0, 0)
+    # An account without a detail record keeps the detail columns null.
+    detail_cols = ("country", "affiliation", "date_registered", "details_fetched_at")
+    assert [two[c] for c in detail_cols] == [None, None, None, None]
+
+
+def test_fetch_user_details_skips_forbidden_and_raises_others(monkeypatch, caplog):
+    from contextlib import nullcontext
+
+    from ojs.api import client as client_mod
+
+    monkeypatch.setattr(client_mod, "_http_client", lambda: nullcontext(None))
+
+    def fake_request(client, url, params):
+        user_id = int(url.rsplit("/", 1)[1])
+        if user_id == 2:
+            raise HttpError("not found", status_code=404, reason="Not Found")
+        if user_id == 9:
+            raise HttpError("server error", status_code=500, reason="Server Error")
+        return _FakeResponse({"id": user_id, "country": "CA"})
+
+    monkeypatch.setattr(client_mod, "_request_with_retry", fake_request)
+
+    with caplog.at_level("WARNING", logger="ojs"):
+        details = client_mod.fetch_user_details("http://base", "key", [1, 2, 3])
+    assert [d["id"] for d in details] == [1, 3]
+    # Regression: skips used to be logged at info level only.
+    assert "WARNING: skipped details for 1/3 users" in caplog.text
+    with pytest.raises(HttpError):
+        client_mod.fetch_user_details("http://base", "key", [1, 9])
+
+
+def test_api_fetch_cli_passes_user_detail_options(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from ojs import cli
+    from ojs.api import run as run_mod
+
+    _patch_api_env(tmp_path, monkeypatch)
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(run_mod, "run_fetch", lambda **kw: seen.update(kw))
+
+    r = CliRunner().invoke(
+        cli.app,
+        [
+            "api",
+            "fetch",
+            "--user-details",
+            "--user-roles",
+            "4096",
+            "--user-roles",
+            "16",
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert seen["user_details"] is True
+    assert seen["user_roles"] == [4096, 16]

@@ -183,6 +183,28 @@ finest granularity is **daily** (there are no per-event timestamps).
 
 If the API key lacks stats access, `fetch` prints a warning and skips the stats files, and `norm` simply omits the two tables.
 
+### User details
+
+The `/users` list returns a summary of each account. `--user-details` adds one
+request per user for the full record, joined into the `users` table as
+`country`, `affiliation`, `date_registered`, and `date_last_login` (about two
+minutes per thousand accounts), plus `details_fetched_at`, the time the record
+was fetched. Accounts never fetched this way keep those columns null.
+
+```bash
+ojs api fetch --user-details                      # every account -> user_details.json
+ojs api fetch --user-details --user-roles 4096    # reviewers only (repeatable role ids)
+```
+
+Each run refetches every selected user (users carry no recency signal, and the
+last-login date changes without one) and merges the records by user id into
+`user_details.json`. Accounts outside the selection keep their earlier record,
+so a `--user-roles` run never discards details fetched before, and `ojs api
+norm` joins whatever the file holds, whether or not the latest fetch used the
+flag. Check `details_fetched_at` for how current a row is; delete
+`user_details.json` to start over. Common role ids: 16 manager, 17 section
+editor, 4096 reviewer, 65536 author, 1048576 reader.
+
 ### Submission files
 
 OJS attaches the actual file artifacts (manuscripts, revisions, reviewer
@@ -242,7 +264,7 @@ How it works:
 - A one-day overlap buffer re-pulls the boundary on each run; merges are idempotent (upsert by id), so the overlap is harmless.
 - View stats: `publication_stats` (cumulative totals) is always pulled in full, while the daily `views_timeline` is re-pulled over a rolling window and merged by `(submission_id, interval, date, kind)`, refreshing recent buckets without dropping history.
 - File metadata (`--files`) keeps its own per-submission watermark, advanced only by runs that fetched files. Turning `--files` on for an incremental run therefore backfills every submission whose files were never fetched, then skips the unchanged ones on later runs.
-- Users are always pulled in full — the API exposes no recency sort for users.
+- Users are always pulled in full — the API exposes no recency sort for users. Disabled accounts are included (`status=all`); the endpoint's default returns active accounts only.
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
 
@@ -264,7 +286,7 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 | `ojs articles norm` | `$OJS_ARTICLES_DIR` (default `data/ojs-website/articles/`) |
 | `ojs reviews norm` | `$OJS_REVIEWS_DIR` (default `data/ojs-website/reviews/`) |
 
-**`ojs api norm`** — eight tables from the REST API:
+**`ojs api norm`** — ten tables from the REST API:
 
 | Table | One row per |
 | --- | --- |
@@ -272,6 +294,8 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 | `publications` | Publication version — title, abstract, issue, pages, license, galley count |
 | `authors` | Author per submission, `author_number` in display order, joined to OJS accounts via `user_id` |
 | `review_assignments` | Reviewer assignment — round, status, response and review due dates |
+| `users` | OJS user account, active or disabled — username, email, full name, ORCID, disabled flag; country, affiliation, registration and last-login dates after `--user-details` |
+| `user_groups` | User and user group the account belongs to — group name, abbreviation, and role id (long format, since groups are install-specific) |
 | `submission_files` | Current file artifact — stage, review round, revision count, uploader, URL |
 | `publication_stats` | Published submission — abstract, galley, PDF, HTML, and other view totals |
 | `views_timeline` | Submission/date/kind view count (long format) |
@@ -362,7 +386,7 @@ logger.setLevel(logging.INFO)
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
-- The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
+- The API JSON dumps contain personal data pulled from OJS: `users.json` and `user_details.json` hold user records **including email addresses**, as do the normalized `users` and `user_groups` tables (names, emails, ORCIDs, roles, and, with `--user-details`, country, affiliation, and login dates), and the author/submission tables carry author names, emails, and ORCIDs. ojs writes these tables and leaves where they are stored to you. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
 - The fetched website reports (`reviews-*.csv`, `articles-*.csv`) and their normalized tables likewise carry reviewer and author names, emails, and ORCIDs. They write under `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, under the gitignored `data/`) — apply the same umask/private-directory care as for the API dumps.
 
 ## Changelog

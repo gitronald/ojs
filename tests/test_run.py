@@ -196,16 +196,19 @@ def test_api_run_norm_returns_tables_and_row_counts(tmp_path):
     result = api_run.run_norm(api_dir=api_dir)
 
     assert result.out_dir == api_dir / "normalized"
-    # The four required tables, plus publication_stats because its dump exists.
+    # The six required tables, plus publication_stats because its dump exists.
     assert result.tables == [
         "submissions",
         "publications",
         "authors",
         "review_assignments",
+        "users",
+        "user_groups",
         "publication_stats",
     ]
     assert result.rows["submissions"] == 1
     assert result.rows["authors"] == 1
+    assert result.rows["users"] == 1
     # Row counts describe what was written, so they match the CSVs on disk.
     for name, rows in result.rows.items():
         assert pl.read_csv(result.out_dir / f"{name}.csv").height == rows
@@ -1134,3 +1137,137 @@ def test_website_run_norm_missing_explicit_input_file_raises(tmp_path):
     missing = tmp_path / "nope.csv"
     with pytest.raises(MissingDataError, match="nope.csv"):
         web_run.run_norm("reviews", input_file=missing, out_dir=tmp_path / "out")
+
+
+def test_run_fetch_user_details_limited_to_roles(tmp_path, fake_client, monkeypatch):
+    from ojs.api import client as client_mod
+
+    reviewer = {"id": 16, "roleId": 4096}
+    author = {"id": 14, "roleId": 65536}
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_users",
+        lambda *a, **k: [
+            {"id": 1, "groups": [reviewer, author]},
+            {"id": 2, "groups": [author]},
+            {"id": 3, "groups": None},
+            {"id": 4, "groups": [reviewer]},
+        ],
+    )
+    asked: list[list[int]] = []
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_user_details",
+        lambda base, key, ids: asked.append(ids) or [{"id": i} for i in ids],
+    )
+
+    result = api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=False,
+        user_details=True,
+        user_roles=[4096],
+    )
+
+    assert asked == [[1, 4]]
+    assert result.user_details == api_run.DatasetCount(2, 2)
+    dumped = json.loads((tmp_path / "user_details.json").read_text())
+    assert [d["id"] for d in dumped] == [1, 4]
+
+
+def test_run_fetch_user_details_off_by_default(tmp_path, fake_client, monkeypatch):
+    from ojs.api import client as client_mod
+
+    def boom(*a, **k):
+        raise AssertionError("user details fetched without --user-details")
+
+    monkeypatch.setattr(client_mod, "fetch_user_details", boom)
+    result = api_run.run_fetch(
+        base_url="http://base", api_key="key", out_dir=tmp_path, stats=False
+    )
+    assert result.user_details is None
+    assert not (tmp_path / "user_details.json").exists()
+
+
+def test_run_fetch_user_roles_requires_user_details(tmp_path):
+    with pytest.raises(OptionError, match="--user-roles requires --user-details"):
+        api_run.run_fetch(
+            base_url="http://base", api_key="key", out_dir=tmp_path, user_roles=[4096]
+        )
+
+
+def test_api_run_norm_joins_user_details(tmp_path):
+    import polars as pl
+
+    api_dir = tmp_path / "api"
+    _write_api_dumps(api_dir, optional=False)
+    (api_dir / "user_details.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": 100,
+                    "country": "CA",
+                    "affiliation": {"en_US": "Example University"},
+                    "dateRegistered": "2023-05-01 10:00:00",
+                    "dateLastLogin": "2026-01-02 03:04:05",
+                }
+            ]
+        )
+    )
+
+    result = api_run.run_norm(api_dir=api_dir)
+
+    users = pl.read_csv(result.out_dir / "users.csv")
+    row = users.row(0, named=True)
+    assert row["country"] == "CA"
+    assert row["affiliation"] == "Example University"
+    assert row["date_last_login"].startswith("2026-01-02T03:04:05")
+
+
+def test_run_fetch_user_details_merges_and_keeps_unselected(
+    tmp_path, fake_client, monkeypatch
+):
+    # Regression: a role-limited run used to overwrite user_details.json, so
+    # every account outside the roles lost the details fetched before.
+    from ojs.api import client as client_mod
+
+    old = "2026-01-01 00:00:00"
+    (tmp_path / "user_details.json").write_text(
+        json.dumps(
+            [
+                {"id": 1, "country": "US", "_fetched_at": old},
+                {"id": 2, "country": "FR", "_fetched_at": old},
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_users",
+        lambda *a, **k: [
+            {"id": 1, "groups": [{"roleId": 4096}]},
+            {"id": 2, "groups": [{"roleId": 65536}]},
+        ],
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_user_details",
+        lambda base, key, ids: [{"id": i, "country": "CA"} for i in ids],
+    )
+
+    result = api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=False,
+        user_details=True,
+        user_roles=[4096],
+    )
+
+    assert result.user_details == api_run.DatasetCount(1, 2)
+    by_id = {
+        d["id"]: d for d in json.loads((tmp_path / "user_details.json").read_text())
+    }
+    assert by_id[1]["country"] == "CA"  # refetched
+    assert by_id[1]["_fetched_at"] > old
+    assert by_id[2] == {"id": 2, "country": "FR", "_fetched_at": old}  # kept
