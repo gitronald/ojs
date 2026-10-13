@@ -1,10 +1,10 @@
 ---
 id: 10
 slug: user-details
-status: implemented
+status: done
 branch: feature/user-details
 created: 2026-10-12T20:01:57-07:00
-concluded:
+concluded: 2026-10-12T20:22:41-07:00
 pr: https://github.com/gitronald/ojs/pull/47
 ---
 
@@ -94,3 +94,10 @@ Record both answers in the Log before choosing a path.
   - This reverses the earlier "rewrite every run" choice: every selected user is still refetched, but the dump is merged rather than replaced.
   - Check gate before merge: ruff check, ruff format --check, pyrefly, and pytest (246 passed).
   - Still not verified: no end-to-end `ojs api fetch --user-details` run against the live install.
+
+## Retrospective
+
+- The probes overturned two premises before any code was written: the swagger snapshot's field list (the live install returns `dateLastLogin`, not `dateLastRegistered`) and the export's mechanics (the admin POST only hands back a GET on `/api/v1/users/report`, which takes the API token). A live check beat reasoning from the snapshot.
+- The website-export path lost on completeness (no affiliation or last login, 63 accounts missing), not cost; the per-user fetch is about 2 minutes, so the plan's worry about request counts did not hold.
+- My first answer to staleness, rewriting the dump every run, traded one problem for another: a role-limited run wiped everyone else's details. Merging by id with a fetch stamp fixed both, and the review caught it, not the tests I wrote.
+- Printing distinct values per column for "shape only" leaked a real value from a sparse column into session output. A probe meant to avoid personal data should print counts only, never values, whatever the cardinality.
