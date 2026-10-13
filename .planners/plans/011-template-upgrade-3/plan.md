@@ -5,7 +5,7 @@ status: active
 branch: feature/template-upgrade-3
 created: 2026-10-12T20:37:10-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/49
 ---
 
 # Sync tooling with proj-template 0.11.2
@@ -63,3 +63,4 @@ published to PyPI) — unchanged from plans 004 and 007.
   - On disk only (gitignored `.claude/`): replaced `.claude/hooks/lint-typecheck.sh` with the template's workspace-aware copy. Installed both hook types from the main checkout; `INSTALL_PYTHON` in `pre-commit` and `post-merge` points at the main checkout's venv.
   - Stamped `[tool.proj-template] version = "0.11.2"`.
   - Verification: `ruff check`, `ruff format --check`, `pyrefly check` (0 errors), `pre-commit run --all-files`, and `pytest` (246 passed, 95.02% coverage against the 86 floor) all green.
+- **2026-10-12T20:38:48-07:00** — PR opened: https://github.com/gitronald/ojs/pull/49
