@@ -55,3 +55,11 @@ published to PyPI) — unchanged from plans 004 and 007.
   - Base: `dev` at `bc160fa`
   - Worktree: `.worktrees/template-upgrade-3`
   - PR: pending
+- **2026-10-12T20:38:30-07:00** — Applied the 0.11.2 sync and verified it green.
+  - Pre-commit config synced to the template (`default_stages`, `uv run planners validate`, `planners-index` post-merge hook); the repo already had the `ruff-check` id.
+  - `ruff` dev pin moved to `>=0.16,<0.17`; refreshing the lock resolved ruff 0.16.10, so the `ruff-pre-commit` rev moved v0.16.6 -> v0.16.10 to keep the commit hook and CI on one version (the template still ships v0.16.6).
+  - `setup-uv` v10.0.1 -> v10.2.0 in `test.yml` and `publish.yml`; both now match the template byte for byte.
+  - Skipped `extend-exclude = ["*.md"]`: the repo keeps Markdown fence formatting on by owner decision. Skipped `.claude/settings.local.json`: the permission baseline lives in user-level settings.
+  - On disk only (gitignored `.claude/`): replaced `.claude/hooks/lint-typecheck.sh` with the template's workspace-aware copy. Installed both hook types from the main checkout; `INSTALL_PYTHON` in `pre-commit` and `post-merge` points at the main checkout's venv.
+  - Stamped `[tool.proj-template] version = "0.11.2"`.
+  - Verification: `ruff check`, `ruff format --check`, `pyrefly check` (0 errors), `pre-commit run --all-files`, and `pytest` (246 passed, 95.02% coverage against the 86 floor) all green.
