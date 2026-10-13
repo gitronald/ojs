@@ -1,6 +1,6 @@
 [project]
 name = "ojs"
-version = "0.11.0"
+version = "0.11.1"
 description = "Tools for working with the Open Journal Systems (OJS) API."
 authors = [
     {name = "gitronald", email = "gitronald@users.noreply.github.com"}
@@ -26,7 +26,7 @@ ojs = "ojs.cli:app"
 # consumers: build backends translate only [project], so this never reaches the
 # wheel or the PyPI metadata. Read it to audit template drift across repos.
 [tool.proj-template]
-version = "0.10.0"
+version = "0.11.2"
 
 [build-system]
 requires = ["hatchling"]
@@ -57,7 +57,10 @@ dev = [
     "pyrefly>=1.0.0",
     "pytest>=9.0.3",
     "pytest-cov",
-    "ruff>=0.15",
+    # Same minor as the ruff-pre-commit rev in .pre-commit-config.yaml, so the
+    # commit hook and `uv run ruff` (CI, the Stop hook) apply one rule set.
+    # Bump the two together.
+    "ruff>=0.16,<0.17",
 ]
 
 [tool.ruff]

@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |
+| 011 | [Sync tooling with proj-template 0.11.2](plans/011-template-upgrade-3/plan.md) | done | 2026-10-12 20:38 PT | [#49](https://github.com/gitronald/ojs/pull/49) |
 | 010 | [Add country, affiliation, and registration date to the users table](plans/010-user-details/plan.md) | done | 2026-10-12 20:22 PT | [#47](https://github.com/gitronald/ojs/pull/47) |
 | 009 | [Add a users table](plans/009-users-table/plan.md) | done | 2026-10-12 20:01 PT | [#46](https://github.com/gitronald/ojs/pull/46) |
 | 008 | [Add the last-activity date to the submissions table](plans/008-submission-activity-dates/plan.md) | done | 2026-09-25 23:59 PT | [#42](https://github.com/gitronald/ojs/pull/42) |
