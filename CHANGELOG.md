@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Sync the development tooling with project template 0.11.2: pin the `ruff` dev dependency to the 0.16 minor and bump it and the ruff pre-commit hook to 0.16.10, run pre-commit hooks on commit only, regenerate the plan index after a merge, and bump the `setup-uv` action to v10.2.0 in both workflows.
+
 ## [0.11.0] - 2026-10-12
 
 - Add `ojs api fetch --user-details`, which fetches each user's full record (one request per user) into `user_details.json` and joins it into the `users` table as `country`, `affiliation`, `date_registered`, `date_last_login`, and `details_fetched_at`. `--user-roles` (repeatable OJS role ids, e.g. `4096` for reviewers) limits the fetch. Each run refetches the selected users and merges their records by id into the dump, so accounts outside the selection keep their earlier details; `details_fetched_at` records when each row was fetched. Accounts never fetched keep the columns null. Library callers get `run_fetch(user_details=..., user_roles=...)` and `ojs.api.client.fetch_user_details`.
