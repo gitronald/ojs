@@ -1,10 +1,10 @@
 ---
 id: 11
 slug: template-upgrade-3
-status: active
+status: done
 branch: feature/template-upgrade-3
 created: 2026-10-12T20:37:10-07:00
-concluded:
+concluded: 2026-10-12T20:38:24-07:00
 pr: https://github.com/gitronald/ojs/pull/49
 ---
 
