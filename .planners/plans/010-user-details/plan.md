@@ -1,8 +1,8 @@
 ---
 id: 10
 slug: user-details
-status: draft
-branch:
+status: active
+branch: feature/user-details
 created: 2026-10-12T20:01:57-07:00
 concluded:
 pr:
@@ -68,3 +68,11 @@ Record both answers in the Log before choosing a path.
 
 1. Inherited from plan 009: users are PII and the package leaves storage to the
    caller; groups are rows, not columns.
+
+## Log
+
+- **2026-10-12T20:11:36-07:00** — Activated.
+  - Branch: `feature/user-details`
+  - Base: `dev` at `8497222`
+  - Worktree: `.worktrees/user-details`
+  - PR: pending
