@@ -1,7 +1,7 @@
 ---
 id: 10
 slug: user-details
-status: active
+status: implemented
 branch: feature/user-details
 created: 2026-10-12T20:01:57-07:00
 concluded:
@@ -88,3 +88,4 @@ Record both answers in the Log before choosing a path.
   - `user_details.json` joins into `users` as `country`, `affiliation` (en_US, else any locale), `date_registered`, `date_last_login` (Datetime). The columns are always present and null without details, so the table's shape does not depend on the flag.
   - 7 new tests (245 pass); README section and changelog entry.
   - Not verified: no end-to-end `ojs api fetch --user-details` run against the live install, since a full fetch was outside the approved probe budget. The parser was written against the field shapes the probe recorded.
+- **2026-10-12T20:16:18-07:00** — Implemented: 5 commits ahead of `dev`.
