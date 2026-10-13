@@ -2,7 +2,6 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 009 | [Add a users table](plans/009-users-table/plan.md) | active | — | — |
 | 010 | [Add country, affiliation, and registration date to the users table](plans/010-user-details/plan.md) | draft | — | — |
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |
