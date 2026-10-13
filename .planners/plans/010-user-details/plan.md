@@ -82,3 +82,9 @@ Record both answers in the Log before choosing a path.
   Decision: the API details path. The report lacks affiliation (a goal of this plan) and last login, and misses accounts; the detail fetch costs about 2 minutes for every field.
   Deviation from the plan: no incremental skip of already-fetched users. `dateLastLogin` and `country` change with no recency signal on users, so a skip would leave stale values; each `--user-details` run refetches the selected users instead, and `--user-roles` keeps the count down. `date_last_login` is added beside the three planned columns.
 - **2026-10-12T20:16:07-07:00** — PR opened: https://github.com/gitronald/ojs/pull/47
+- **2026-10-12T20:16:15-07:00** — Built the API details path.
+  - `ojs.api.client.fetch_user_details` (one GET per user on one client; 403/404 logged and skipped, other errors raise).
+  - `run_fetch(user_details=, user_roles=)` and `ojs api fetch --user-details --user-roles <id>` (repeatable). Role filtering uses the `groups` already in `users.json`, so it costs no extra request; `--user-roles` without `--user-details` is an `OptionError`. `FetchResult.user_details` reports the count.
+  - `user_details.json` joins into `users` as `country`, `affiliation` (en_US, else any locale), `date_registered`, `date_last_login` (Datetime). The columns are always present and null without details, so the table's shape does not depend on the flag.
+  - 7 new tests (245 pass); README section and changelog entry.
+  - Not verified: no end-to-end `ojs api fetch --user-details` run against the live install, since a full fetch was outside the approved probe budget. The parser was written against the field shapes the probe recorded.
