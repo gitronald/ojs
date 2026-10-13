@@ -1,11 +1,11 @@
 ---
 id: 11
 slug: template-upgrade-3
-status: active
+status: done
 branch: feature/template-upgrade-3
 created: 2026-10-12T20:37:10-07:00
-concluded:
-pr:
+concluded: 2026-10-12T20:38:24-07:00
+pr: https://github.com/gitronald/ojs/pull/49
 ---
 
 # Sync tooling with proj-template 0.11.2
@@ -55,3 +55,21 @@ published to PyPI) — unchanged from plans 004 and 007.
   - Base: `dev` at `bc160fa`
   - Worktree: `.worktrees/template-upgrade-3`
   - PR: pending
+- **2026-10-12T20:38:30-07:00** — Applied the 0.11.2 sync and verified it green.
+  - Pre-commit config synced to the template (`default_stages`, `uv run planners validate`, `planners-index` post-merge hook); the repo already had the `ruff-check` id.
+  - `ruff` dev pin moved to `>=0.16,<0.17`; refreshing the lock resolved ruff 0.16.10, so the `ruff-pre-commit` rev moved v0.16.6 -> v0.16.10 to keep the commit hook and CI on one version (the template still ships v0.16.6).
+  - `setup-uv` v10.0.1 -> v10.2.0 in `test.yml` and `publish.yml`; both now match the template byte for byte.
+  - Skipped `extend-exclude = ["*.md"]`: the repo keeps Markdown fence formatting on by owner decision. Skipped `.claude/settings.local.json`: the permission baseline lives in user-level settings.
+  - On disk only (gitignored `.claude/`): replaced `.claude/hooks/lint-typecheck.sh` with the template's workspace-aware copy. Installed both hook types from the main checkout; `INSTALL_PYTHON` in `pre-commit` and `post-merge` points at the main checkout's venv.
+  - Stamped `[tool.proj-template] version = "0.11.2"`.
+  - Verification: `ruff check`, `ruff format --check`, `pyrefly check` (0 errors), `pre-commit run --all-files`, and `pytest` (246 passed, 95.02% coverage against the 86 floor) all green.
+- **2026-10-12T20:38:48-07:00** — PR opened: https://github.com/gitronald/ojs/pull/49
+- **2026-10-12T20:51:15-07:00** — Review gate passed; CI green on all four cells (3.11-3.14).
+  - Review follow-up: `/code-review` at low raised two candidates, both on the planners hooks needing a `planners` executable outside the project venv. Conscious no-op: the old bare `planners validate` entry needed the same global tool, `uv run` falls back to PATH, and the entries match the template byte for byte.
+
+## Retrospective
+
+- The delta from 0.10.0 to 0.11.2 was small; the useful work was the diff triage, since two of the template's changes (the `*.md` ruff exclude and a per-repo `settings.local.json`) run against decisions this repo had already made.
+- Bumping the lock under the new ruff pin pulled ruff past the template's hook rev, so the repo now leads the template on that rev. Keeping the lock and the hook rev equal matters more than matching the template.
+- `.gitattributes` and the `ruff-check` hook id were already in place from plan 007, so this pass mostly finished the planners wiring (the `post-merge` hook) that the earlier pass had started.
+- A WSL update restarted the VM mid-close; every step up to that point was committed and pushed, so nothing had to be redone.
