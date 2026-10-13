@@ -89,3 +89,8 @@ Record both answers in the Log before choosing a path.
   - 7 new tests (245 pass); README section and changelog entry.
   - Not verified: no end-to-end `ojs api fetch --user-details` run against the live install, since a full fetch was outside the approved probe budget. The parser was written against the field shapes the probe recorded.
 - **2026-10-12T20:16:18-07:00** — Implemented: 5 commits ahead of `dev`.
+- **2026-10-12T20:23:13-07:00** — Review gate: `/code-review` at medium on PR #47, summary posted to the PR. Commit 8f5fa14 carries the fixes.
+  - Review follow-up: 11 candidates raised, 4 confirmed and fixed. (1) A stale `user_details.json` was joined with no age signal: records are now stamped `_fetched_at`, surfaced as `users.details_fetched_at`. (2) A `--user-roles` run overwrote the dump and discarded other accounts' details: records now merge by user id (regression test `test_run_fetch_user_details_merges_and_keeps_unselected`). (3) 403/404 skips were silent: a `WARNING` with the count (asserted in the fetch test). (4) Role 17 named two ways: now "section editor" in both. Conscious no-ops: string `roleId`, detail record without `id`, non-standard date formats, `--user-roles` matching no group, inline role filter (all below confidence 30 or not reproducible).
+  - This reverses the earlier "rewrite every run" choice: every selected user is still refetched, but the dump is merged rather than replaced.
+  - Check gate before merge: ruff check, ruff format --check, pyrefly, and pytest (246 passed).
+  - Still not verified: no end-to-end `ojs api fetch --user-details` run against the live install.
