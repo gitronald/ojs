@@ -1,7 +1,7 @@
 ---
 id: 9
 slug: users-table
-status: draft
+status: active
 branch: feature/users-table
 created: 2026-10-12T19:45:40-07:00
 concluded:
@@ -84,3 +84,11 @@ Record both answers in the Log before choosing the fetch path in step 3.
 
 - Writing to users or groups (the package is read-only against OJS).
 - Matching users to reviews beyond the existing `reviews` table's columns.
+
+## Log
+
+- **2026-10-12T19:58:48-07:00** — Activated.
+  - Branch: `feature/users-table`
+  - Base: `dev` at `6b8c302`
+  - Worktree: `.worktrees/users-table`
+  - PR: pending
