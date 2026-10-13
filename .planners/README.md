@@ -2,7 +2,7 @@
 
 | # | Plan | Status | Concluded | PR |
 |---|---|---|---|---|
-| 011 | [Sync tooling with proj-template 0.11.2](plans/011-template-upgrade-3/plan.md) | draft | — | — |
+| 011 | [Sync tooling with proj-template 0.11.2](plans/011-template-upgrade-3/plan.md) | active | — | — |
 | 001 | [Verify last modified date for review-assignment edits](plans/001-verify-modified-date/plan.md) | draft | — | — |
 | 000 | [Investigate submission file binary download](plans/000-submission-file-downloads/plan.md) | draft | — | — |
 | 010 | [Add country, affiliation, and registration date to the users table](plans/010-user-details/plan.md) | done | 2026-10-12 20:22 PT | [#47](https://github.com/gitronald/ojs/pull/47) |

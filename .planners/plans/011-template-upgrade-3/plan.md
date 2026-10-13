@@ -1,8 +1,8 @@
 ---
 id: 11
 slug: template-upgrade-3
-status: draft
-branch:
+status: active
+branch: feature/template-upgrade-3
 created: 2026-10-12T20:37:10-07:00
 concluded:
 pr:
@@ -47,3 +47,11 @@ published to PyPI) — unchanged from plans 004 and 007.
 **Verification:** `uv sync --all-groups`, `uv run ruff check .`,
 `uv run ruff format --check .`, `uv run pyrefly check`,
 `uv run pre-commit run --all-files`, `uv run pytest`.
+
+## Log
+
+- **2026-10-12T20:37:28-07:00** — Activated.
+  - Branch: `feature/template-upgrade-3`
+  - Base: `dev` at `bc160fa`
+  - Worktree: `.worktrees/template-upgrade-3`
+  - PR: pending
