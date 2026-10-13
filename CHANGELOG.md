@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-12
+
 - Add `ojs api fetch --user-details`, which fetches each user's full record (one request per user) into `user_details.json` and joins it into the `users` table as `country`, `affiliation`, `date_registered`, `date_last_login`, and `details_fetched_at`. `--user-roles` (repeatable OJS role ids, e.g. `4096` for reviewers) limits the fetch. Each run refetches the selected users and merges their records by id into the dump, so accounts outside the selection keep their earlier details; `details_fetched_at` records when each row was fetched. Accounts never fetched keep the columns null. Library callers get `run_fetch(user_details=..., user_roles=...)` and `ojs.api.client.fetch_user_details`.
 - Add `users` and `user_groups` tables to `ojs api norm`, built from the `users.json` that `ojs api fetch` already writes. `users` has one row per account (`user_id`, `username`, `email`, `full_name`, `orcid`, `disabled`); `user_groups` has one row per account and user group (`group_id`, `group_name`, `group_abbrev`, `role_id`), so a consumer can list everyone who holds a role without parsing the raw JSON. Both carry personal data, like `authors`. `ojs api schema` documents them, and `ojs.api.normalize` exposes `normalize_users` and `normalize_user_groups`.
 - `ojs api fetch` now requests disabled user accounts as well as active ones (`status=all`). The `/users` endpoint returns only active accounts by default, so earlier `users.json` dumps lack disabled accounts; the next fetch adds them, and authors whose account is disabled can now be matched by email.
