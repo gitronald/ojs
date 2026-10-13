@@ -62,6 +62,7 @@ OPTIONAL_NORM_FILES = (
     "views_timeline",
     "views_timeline_totals",
     "submission_files",
+    "user_details",
 )
 
 # Timeline granularities the OJS stats endpoints accept. The CLI constrains
@@ -92,6 +93,7 @@ class FetchResult:
     submissions_extended: DatasetCount
     publications: DatasetCount
     users: DatasetCount
+    user_details: DatasetCount | None = None
     submission_files: DatasetCount | None = None
     publication_stats: DatasetCount | None = None
     views_timeline: DatasetCount | None = None
@@ -169,6 +171,8 @@ def run_fetch(
     incremental: bool = False,
     since: str | None = None,
     full: bool = False,
+    user_details: bool = False,
+    user_roles: list[int] | None = None,
 ) -> FetchResult:
     """Fetch data from the OJS API and save raw JSON.
 
@@ -176,12 +180,18 @@ def run_fetch(
     records and merges them into the existing JSON dumps; ``full`` forces a
     complete pull and resets the sync state.
 
+    ``user_details`` also fetches each user's full record (one request per
+    user) into ``user_details.json``, overwritten on every run: users carry no
+    recency signal, and fields such as the last-login date change without one,
+    so a skip would leave them stale. ``user_roles`` limits that fetch to
+    accounts holding one of the given OJS role ids (e.g. 4096 for reviewers).
+
     Raises:
         ConfigError: neither the arguments nor the environment supply
             ``base_url``/``api_key``.
         OptionError: ``full`` combined with ``incremental``/``since``, a date
-            argument that is not ``YYYY-MM-DD``, or a ``stats_interval`` outside
-            :data:`STATS_INTERVALS`.
+            argument that is not ``YYYY-MM-DD``, a ``stats_interval`` outside
+            :data:`STATS_INTERVALS`, or ``user_roles`` without ``user_details``.
         HttpError: an API request failed after retries (a 403/404 on the stats
             endpoints is skipped instead, leaving ``stats_ok`` False).
     """
@@ -189,6 +199,8 @@ def run_fetch(
 
     if full and (incremental or since):
         raise OptionError("--full cannot be combined with --incremental/--since")
+    if user_roles and not user_details:
+        raise OptionError("--user-roles requires --user-details")
     incremental = incremental or since is not None
 
     # Validate date filters up front so a typo fails fast, before any fetch.
@@ -313,6 +325,21 @@ def run_fetch(
     write_json(api_out_dir / "users.json", users)
     logger.info(f"Saved {len(users)} users")
 
+    user_details_count: DatasetCount | None = None
+    if user_details:
+        roles = set(user_roles or ())
+        detail_ids = [
+            u["id"]
+            for u in users
+            if not roles or any(g.get("roleId") in roles for g in u.get("groups") or [])
+        ]
+        details = client.fetch_user_details(
+            resolved_base_url, resolved_api_key, detail_ids
+        )
+        write_json(api_out_dir / "user_details.json", details)
+        logger.info(f"Saved {len(details)} user detail records")
+        user_details_count = DatasetCount(len(details), len(details))
+
     # Tracks whether the stats block fully succeeded, so the rolling stats window
     # only advances when stats were actually written (see watermark block below).
     stats_ok = False
@@ -434,6 +461,7 @@ def run_fetch(
         submissions_extended=submissions_ext_count,
         publications=publications_count,
         users=DatasetCount(len(users), len(users)),
+        user_details=user_details_count,
         submission_files=files_count,
         publication_stats=pub_stats_count,
         views_timeline=timeline_count,

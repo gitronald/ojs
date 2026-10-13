@@ -205,6 +205,28 @@ class Users(Table):
     full_name = Column(pl.String, "Full name in the primary locale.", "fullName")
     orcid = Column(pl.String, "ORCID iD as stored; null if none is set.", "orcid")
     disabled = Column(pl.Boolean, "Whether the account is disabled.", "disabled")
+    country = Column(
+        pl.String,
+        "Country code; null unless `ojs api fetch --user-details` fetched the account.",
+        "user_details[].country",
+    )
+    affiliation = Column(
+        pl.String,
+        "Affiliation (en_US, else any locale); null without user details.",
+        "user_details[].affiliation",
+    )
+    date_registered = Column(
+        pl.Datetime("us"),
+        "Datetime the account was registered; null without user details. Naive "
+        "server-local time (the API reports no offset).",
+        "user_details[].dateRegistered",
+    )
+    date_last_login = Column(
+        pl.Datetime("us"),
+        "Datetime of the account's last login, as of the fetch; null without "
+        "user details. Naive server-local time.",
+        "user_details[].dateLastLogin",
+    )
 
 
 class UserGroups(Table):

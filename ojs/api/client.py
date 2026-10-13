@@ -496,6 +496,37 @@ def fetch_users(base_url: str, api_key: str) -> list[dict[str, Any]]:
         return _paginate(client, url, {"apiToken": api_key, "status": "all"})
 
 
+def fetch_user_details(
+    base_url: str, api_key: str, user_ids: list[int]
+) -> list[dict[str, Any]]:
+    """Fetch each user's full record from /users/{id}, one request per user.
+
+    The list endpoint returns a summary; the full record adds ``country``,
+    ``affiliation``, ``dateRegistered``, and ``dateLastLogin``. A user the key
+    cannot see (or one deleted since the list was fetched) answers 403/404 and
+    is logged and skipped rather than aborting the batch.
+    """
+    logger.info(f"Fetching user details for {len(user_ids)} users...")
+    details: list[dict[str, Any]] = []
+    with _http_client() as client:
+        for i, user_id in enumerate(user_ids):
+            url = f"{base_url}/api/v1/users/{user_id}"
+            try:
+                response = _request_with_retry(client, url, {"apiToken": api_key})
+            except HttpError as e:
+                if e.status_code not in SKIP_STATUSES:
+                    raise
+                logger.info(
+                    f"  Skipping details for user {user_id}: {e.status_code} {e.reason}"
+                )
+                continue
+            details.append(response.json())
+            if (i + 1) % 100 == 0:
+                logger.info(f"  Fetched details for {i + 1}/{len(user_ids)} users")
+    logger.info(f"  Fetched {len(details)} user records")
+    return details
+
+
 def _stats_params(
     api_key: str,
     *,

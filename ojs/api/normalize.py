@@ -216,24 +216,35 @@ def normalize_authors(
     return df
 
 
-def normalize_users(users: list[dict[str, Any]]) -> pl.DataFrame:
+def normalize_users(
+    users: list[dict[str, Any]],
+    user_details: list[dict[str, Any]] | None = None,
+) -> pl.DataFrame:
     """Build a users table, one row per account, from /users summary records.
 
-    The list endpoint returns a summary (no country, affiliation, or dates), so
-    the table carries the account's identity and its disabled flag only. Group
+    The list endpoint returns a summary with no country, affiliation, or dates;
+    ``user_details`` (the /users/{id} records from ``--user-details``) supplies
+    those. An account without a detail record keeps them null. Group
     memberships go to :func:`normalize_user_groups`.
     """
-    rows: list[dict[str, Any]] = [
-        {
-            "user_id": u["id"],
-            "username": u.get("userName") or None,
-            "email": u.get("email") or None,
-            "full_name": u.get("fullName") or None,
-            "orcid": u.get("orcid") or None,
-            "disabled": u.get("disabled"),
-        }
-        for u in users
-    ]
+    details_by_id = {d["id"]: d for d in user_details or []}
+    rows: list[dict[str, Any]] = []
+    for u in users:
+        detail = details_by_id.get(u["id"], {})
+        rows.append(
+            {
+                "user_id": u["id"],
+                "username": u.get("userName") or None,
+                "email": u.get("email") or None,
+                "full_name": u.get("fullName") or None,
+                "orcid": u.get("orcid") or None,
+                "disabled": u.get("disabled"),
+                "country": detail.get("country") or None,
+                "affiliation": localized(detail.get("affiliation"), fallback_any=True),
+                "date_registered": detail.get("dateRegistered") or None,
+                "date_last_login": detail.get("dateLastLogin") or None,
+            }
+        )
 
     if not rows:
         return pl.DataFrame(schema=schemas.Users.polars_schema())
@@ -535,6 +546,7 @@ def normalize_api(
     views_timeline: list[dict[str, Any]] | None = None,
     views_timeline_totals: list[dict[str, Any]] | None = None,
     submission_files: list[dict[str, Any]] | None = None,
+    user_details: list[dict[str, Any]] | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Run the full API normalization pipeline.
 
@@ -559,7 +571,7 @@ def normalize_api(
         f"Review assignments: {reviews_df.shape[0]} rows, {reviews_df.shape[1]} columns"
     )
 
-    users_df = normalize_users(users)
+    users_df = normalize_users(users, user_details)
     logger.info(f"Users: {users_df.shape[0]} rows, {users_df.shape[1]} columns")
 
     user_groups_df = normalize_user_groups(users)
