@@ -64,3 +64,5 @@ published to PyPI) — unchanged from plans 004 and 007.
   - Stamped `[tool.proj-template] version = "0.11.2"`.
   - Verification: `ruff check`, `ruff format --check`, `pyrefly check` (0 errors), `pre-commit run --all-files`, and `pytest` (246 passed, 95.02% coverage against the 86 floor) all green.
 - **2026-10-12T20:38:48-07:00** — PR opened: https://github.com/gitronald/ojs/pull/49
+- **2026-10-12T20:51:15-07:00** — Review gate passed; CI green on all four cells (3.11-3.14).
+  - Review follow-up: `/code-review` at low raised two candidates, both on the planners hooks needing a `planners` executable outside the project venv. Conscious no-op: the old bare `planners validate` entry needed the same global tool, `uv run` falls back to PATH, and the entries match the template byte for byte.
