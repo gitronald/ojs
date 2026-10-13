@@ -242,7 +242,7 @@ How it works:
 - A one-day overlap buffer re-pulls the boundary on each run; merges are idempotent (upsert by id), so the overlap is harmless.
 - View stats: `publication_stats` (cumulative totals) is always pulled in full, while the daily `views_timeline` is re-pulled over a rolling window and merged by `(submission_id, interval, date, kind)`, refreshing recent buckets without dropping history.
 - File metadata (`--files`) keeps its own per-submission watermark, advanced only by runs that fetched files. Turning `--files` on for an incremental run therefore backfills every submission whose files were never fetched, then skips the unchanged ones on later runs.
-- Users are always pulled in full — the API exposes no recency sort for users.
+- Users are always pulled in full — the API exposes no recency sort for users. Disabled accounts are included (`status=all`); the endpoint's default returns active accounts only.
 
 The OJS API has no server-side "modified since" filter, so incremental cannot detect upstream deletions; run `ojs api fetch --full` periodically to reconcile.
 
@@ -264,7 +264,7 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 | `ojs articles norm` | `$OJS_ARTICLES_DIR` (default `data/ojs-website/articles/`) |
 | `ojs reviews norm` | `$OJS_REVIEWS_DIR` (default `data/ojs-website/reviews/`) |
 
-**`ojs api norm`** — eight tables from the REST API:
+**`ojs api norm`** — ten tables from the REST API:
 
 | Table | One row per |
 | --- | --- |
@@ -272,6 +272,8 @@ Every `norm` command writes one **CSV per table**, named for the table, next to 
 | `publications` | Publication version — title, abstract, issue, pages, license, galley count |
 | `authors` | Author per submission, `author_number` in display order, joined to OJS accounts via `user_id` |
 | `review_assignments` | Reviewer assignment — round, status, response and review due dates |
+| `users` | OJS user account, active or disabled — username, email, full name, ORCID, disabled flag |
+| `user_groups` | User and user group the account belongs to — group name, abbreviation, and role id (long format, since groups are install-specific) |
 | `submission_files` | Current file artifact — stage, review round, revision count, uploader, URL |
 | `publication_stats` | Published submission — abstract, galley, PDF, HTML, and other view totals |
 | `views_timeline` | Submission/date/kind view count (long format) |
@@ -362,7 +364,7 @@ logger.setLevel(logging.INFO)
 ## Security & privacy
 
 - The API token lives in `.env` (the `init` prompt hides input), alongside `OJS_PASSWORD` for the website `fetch` commands. `.env` is gitignored and written `0600` — keep it out of version control and out of shared locations.
-- The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, and the author/submission tables carry author names, emails, and ORCIDs. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
+- The API JSON dumps contain personal data pulled from OJS: `users.json` holds user records **including email addresses**, as do the normalized `users` and `user_groups` tables (names, emails, ORCIDs, and roles), and the author/submission tables carry author names, emails, and ORCIDs. ojs writes these tables and leaves where they are stored to you. These files are written with the process umask (typically `0644`, i.e. world-readable). On a shared or multi-user host, run with a restrictive umask (e.g. `umask 077`) or point `OJS_API_DIR` at a private directory so other local users can't read them.
 - The fetched website reports (`reviews-*.csv`, `articles-*.csv`) and their normalized tables likewise carry reviewer and author names, emails, and ORCIDs. They write under `OJS_DOWNLOADS_DIR` (default `data/ojs-website`, under the gitignored `data/`) — apply the same umask/private-directory care as for the API dumps.
 
 ## Changelog
