@@ -188,17 +188,22 @@ If the API key lacks stats access, `fetch` prints a warning and skips the stats 
 The `/users` list returns a summary of each account. `--user-details` adds one
 request per user for the full record, joined into the `users` table as
 `country`, `affiliation`, `date_registered`, and `date_last_login` (about two
-minutes per thousand accounts). Without it those columns are null.
+minutes per thousand accounts), plus `details_fetched_at`, the time the record
+was fetched. Accounts never fetched this way keep those columns null.
 
 ```bash
 ojs api fetch --user-details                      # every account -> user_details.json
 ojs api fetch --user-details --user-roles 4096    # reviewers only (repeatable role ids)
 ```
 
-`user_details.json` is rewritten on every run, never merged: users carry no
-recency signal, and the last-login date changes without one, so skipping
-already-fetched users would leave stale values. Common role ids: 16 manager,
-17 section editor, 4096 reviewer, 65536 author, 1048576 reader.
+Each run refetches every selected user (users carry no recency signal, and the
+last-login date changes without one) and merges the records by user id into
+`user_details.json`. Accounts outside the selection keep their earlier record,
+so a `--user-roles` run never discards details fetched before, and `ojs api
+norm` joins whatever the file holds, whether or not the latest fetch used the
+flag. Check `details_fetched_at` for how current a row is; delete
+`user_details.json` to start over. Common role ids: 16 manager, 17 section
+editor, 4096 reviewer, 65536 author, 1048576 reader.
 
 ### Submission files
 

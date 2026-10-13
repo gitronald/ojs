@@ -2437,6 +2437,7 @@ def test_normalize_users_joins_user_details():
             "affiliation": {"en_US": "", "fr_CA": "Universite Exemple"},
             "dateRegistered": "2023-05-01 10:00:00",
             "dateLastLogin": "2026-01-02 03:04:05",
+            "_fetched_at": "2026-10-12 20:00:00",
         }
     ]
     df = normalize_users([_user(1), _user(2)], details)
@@ -2445,15 +2446,13 @@ def test_normalize_users_joins_user_details():
     assert one["affiliation"] == "Universite Exemple"
     assert one["date_registered"] == datetime(2023, 5, 1, 10, 0, 0)
     assert one["date_last_login"] == datetime(2026, 1, 2, 3, 4, 5)
+    assert one["details_fetched_at"] == datetime(2026, 10, 12, 20, 0, 0)
     # An account without a detail record keeps the detail columns null.
-    assert [two[c] for c in ("country", "affiliation", "date_registered")] == [
-        None,
-        None,
-        None,
-    ]
+    detail_cols = ("country", "affiliation", "date_registered", "details_fetched_at")
+    assert [two[c] for c in detail_cols] == [None, None, None, None]
 
 
-def test_fetch_user_details_skips_forbidden_and_raises_others(monkeypatch):
+def test_fetch_user_details_skips_forbidden_and_raises_others(monkeypatch, caplog):
     from contextlib import nullcontext
 
     from ojs.api import client as client_mod
@@ -2470,8 +2469,11 @@ def test_fetch_user_details_skips_forbidden_and_raises_others(monkeypatch):
 
     monkeypatch.setattr(client_mod, "_request_with_retry", fake_request)
 
-    details = client_mod.fetch_user_details("http://base", "key", [1, 2, 3])
+    with caplog.at_level("WARNING", logger="ojs"):
+        details = client_mod.fetch_user_details("http://base", "key", [1, 2, 3])
     assert [d["id"] for d in details] == [1, 3]
+    # Regression: skips used to be logged at info level only.
+    assert "WARNING: skipped details for 1/3 users" in caplog.text
     with pytest.raises(HttpError):
         client_mod.fetch_user_details("http://base", "key", [1, 9])
 

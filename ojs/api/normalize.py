@@ -224,7 +224,8 @@ def normalize_users(
 
     The list endpoint returns a summary with no country, affiliation, or dates;
     ``user_details`` (the /users/{id} records from ``--user-details``) supplies
-    those. An account without a detail record keeps them null. Group
+    those, with ``details_fetched_at`` saying when each record was fetched. An
+    account without a detail record keeps them null. Group
     memberships go to :func:`normalize_user_groups`.
     """
     details_by_id = {d["id"]: d for d in user_details or []}
@@ -243,6 +244,7 @@ def normalize_users(
                 "affiliation": localized(detail.get("affiliation"), fallback_any=True),
                 "date_registered": detail.get("dateRegistered") or None,
                 "date_last_login": detail.get("dateLastLogin") or None,
+                "details_fetched_at": detail.get("_fetched_at"),
             }
         )
 

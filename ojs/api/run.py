@@ -180,11 +180,14 @@ def run_fetch(
     records and merges them into the existing JSON dumps; ``full`` forces a
     complete pull and resets the sync state.
 
-    ``user_details`` also fetches each user's full record (one request per
-    user) into ``user_details.json``, overwritten on every run: users carry no
-    recency signal, and fields such as the last-login date change without one,
-    so a skip would leave them stale. ``user_roles`` limits that fetch to
-    accounts holding one of the given OJS role ids (e.g. 4096 for reviewers).
+    ``user_details`` also fetches each selected user's full record (one request
+    per user) and upserts it by id into ``user_details.json``, stamped with a
+    ``_fetched_at`` time. Every selected user is refetched: users carry no
+    recency signal, and fields such as the last-login date change without one.
+    Users outside the selection keep their earlier record (and its stamp), so
+    ``user_roles`` -- which limits the fetch to accounts holding one of the
+    given OJS role ids, e.g. 4096 for reviewers -- never discards details
+    fetched before.
 
     Raises:
         ConfigError: neither the arguments nor the environment supply
@@ -336,9 +339,16 @@ def run_fetch(
         details = client.fetch_user_details(
             resolved_base_url, resolved_api_key, detail_ids
         )
-        write_json(api_out_dir / "user_details.json", details)
-        logger.info(f"Saved {len(details)} user detail records")
-        user_details_count = DatasetCount(len(details), len(details))
+        fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for detail in details:
+            detail["_fetched_at"] = fetched_at
+        merged_details = merge_write_json(
+            api_out_dir / "user_details.json", details, "id"
+        )
+        logger.info(
+            f"Merged {len(details)} user detail records ({len(merged_details)} total)"
+        )
+        user_details_count = DatasetCount(len(details), len(merged_details))
 
     # Tracks whether the stats block fully succeeded, so the rolling stats window
     # only advances when stats were actually written (see watermark block below).

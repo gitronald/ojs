@@ -287,7 +287,8 @@ def api_fetch(
         False,
         "--user-details/--no-user-details",
         help="Fetch each user's full record (country, affiliation, registration "
-        "and last-login dates); one request per user, refetched every run.",
+        "and last-login dates); one request per user, merged by id into "
+        "user_details.json.",
     ),
     user_roles: list[int] = typer.Option(
         None,

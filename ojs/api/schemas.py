@@ -207,25 +207,33 @@ class Users(Table):
     disabled = Column(pl.Boolean, "Whether the account is disabled.", "disabled")
     country = Column(
         pl.String,
-        "Country code; null unless `ojs api fetch --user-details` fetched the account.",
+        "Country code; null until `ojs api fetch --user-details` has fetched "
+        "the account.",
         "user_details[].country",
     )
     affiliation = Column(
         pl.String,
-        "Affiliation (en_US, else any locale); null without user details.",
+        "Affiliation (en_US, else any locale); null without a detail record.",
         "user_details[].affiliation",
     )
     date_registered = Column(
         pl.Datetime("us"),
-        "Datetime the account was registered; null without user details. Naive "
-        "server-local time (the API reports no offset).",
+        "Datetime the account was registered; null without a detail record. "
+        "Naive server-local time (the API reports no offset).",
         "user_details[].dateRegistered",
     )
     date_last_login = Column(
         pl.Datetime("us"),
-        "Datetime of the account's last login, as of the fetch; null without "
-        "user details. Naive server-local time.",
+        "Datetime of the account's last login as of details_fetched_at; null "
+        "without a detail record. Naive server-local time.",
         "user_details[].dateLastLogin",
+    )
+    details_fetched_at = Column(
+        pl.Datetime("us"),
+        "When the account's detail record was last fetched (local time of the "
+        "machine running ojs); null without a detail record. The detail columns "
+        "are as of this time.",
+        "user_details[]._fetched_at",
     )
 
 
@@ -247,7 +255,7 @@ class UserGroups(Table):
     )
     role_id = Column(
         pl.Int64,
-        "OJS role id of the group: 16 manager, 17 sub editor, 65536 author, "
+        "OJS role id of the group: 16 manager, 17 section editor, 65536 author, "
         "4096 reviewer, 4097 assistant, 1048576 reader, 2097152 subscription "
         "manager, 1 site admin.",
         "groups[].roleId",

@@ -1223,3 +1223,51 @@ def test_api_run_norm_joins_user_details(tmp_path):
     assert row["country"] == "CA"
     assert row["affiliation"] == "Example University"
     assert row["date_last_login"].startswith("2026-01-02T03:04:05")
+
+
+def test_run_fetch_user_details_merges_and_keeps_unselected(
+    tmp_path, fake_client, monkeypatch
+):
+    # Regression: a role-limited run used to overwrite user_details.json, so
+    # every account outside the roles lost the details fetched before.
+    from ojs.api import client as client_mod
+
+    old = "2026-01-01 00:00:00"
+    (tmp_path / "user_details.json").write_text(
+        json.dumps(
+            [
+                {"id": 1, "country": "US", "_fetched_at": old},
+                {"id": 2, "country": "FR", "_fetched_at": old},
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_users",
+        lambda *a, **k: [
+            {"id": 1, "groups": [{"roleId": 4096}]},
+            {"id": 2, "groups": [{"roleId": 65536}]},
+        ],
+    )
+    monkeypatch.setattr(
+        client_mod,
+        "fetch_user_details",
+        lambda base, key, ids: [{"id": i, "country": "CA"} for i in ids],
+    )
+
+    result = api_run.run_fetch(
+        base_url="http://base",
+        api_key="key",
+        out_dir=tmp_path,
+        stats=False,
+        user_details=True,
+        user_roles=[4096],
+    )
+
+    assert result.user_details == api_run.DatasetCount(1, 2)
+    by_id = {
+        d["id"]: d for d in json.loads((tmp_path / "user_details.json").read_text())
+    }
+    assert by_id[1]["country"] == "CA"  # refetched
+    assert by_id[1]["_fetched_at"] > old
+    assert by_id[2] == {"id": 2, "country": "FR", "_fetched_at": old}  # kept

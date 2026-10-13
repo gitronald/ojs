@@ -504,10 +504,12 @@ def fetch_user_details(
     The list endpoint returns a summary; the full record adds ``country``,
     ``affiliation``, ``dateRegistered``, and ``dateLastLogin``. A user the key
     cannot see (or one deleted since the list was fetched) answers 403/404 and
-    is logged and skipped rather than aborting the batch.
+    is skipped rather than aborting the batch, with a warning counting the skips
+    (a key without access to the endpoint skips every user).
     """
     logger.info(f"Fetching user details for {len(user_ids)} users...")
     details: list[dict[str, Any]] = []
+    skipped = 0
     with _http_client() as client:
         for i, user_id in enumerate(user_ids):
             url = f"{base_url}/api/v1/users/{user_id}"
@@ -519,10 +521,16 @@ def fetch_user_details(
                 logger.info(
                     f"  Skipping details for user {user_id}: {e.status_code} {e.reason}"
                 )
+                skipped += 1
                 continue
             details.append(response.json())
             if (i + 1) % 100 == 0:
                 logger.info(f"  Fetched details for {i + 1}/{len(user_ids)} users")
+    if skipped:
+        logger.warning(
+            f"  WARNING: skipped details for {skipped}/{len(user_ids)} users "
+            "(403/404); the API key may lack access to /users/{id}"
+        )
     logger.info(f"  Fetched {len(details)} user records")
     return details
 
