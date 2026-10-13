@@ -5,7 +5,7 @@ status: active
 branch: feature/users-table
 created: 2026-10-12T19:45:40-07:00
 concluded:
-pr:
+pr: https://github.com/gitronald/ojs/pull/46
 ---
 
 # Add a users table
@@ -92,3 +92,4 @@ Record both answers in the Log before choosing the fetch path in step 3.
   - Base: `dev` at `6b8c302`
   - Worktree: `.worktrees/users-table`
   - PR: pending
+- **2026-10-12T20:01:49-07:00** — PR opened: https://github.com/gitronald/ojs/pull/46
