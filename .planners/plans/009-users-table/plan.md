@@ -1,11 +1,11 @@
 ---
 id: 9
 slug: users-table
-status: active
+status: done
 branch: feature/users-table
 created: 2026-10-12T19:45:40-07:00
-concluded:
-pr:
+concluded: 2026-10-12T20:01:33-07:00
+pr: https://github.com/gitronald/ojs/pull/46
 ---
 
 # Add a users table
@@ -92,3 +92,21 @@ Record both answers in the Log before choosing the fetch path in step 3.
   - Base: `dev` at `6b8c302`
   - Worktree: `.worktrees/users-table`
   - PR: pending
+- **2026-10-12T20:01:49-07:00** — PR opened: https://github.com/gitronald/ojs/pull/46
+- **2026-10-12T20:02:21-07:00** — Investigation (from the swagger snapshot only; nothing was run against a live install).
+  - Question 1, partly answered: `GET /api/v1/users/{userId}` returns the full `User` schema, with `country`, `affiliation`, `dateRegistered`, `dateLastRegistered`, and `dateValidated`. It has no `dateLastLogin`. The cost per user was not timed: that needs a live install.
+  - Question 2, not answered: the route of the admin Users export needs admin access to a live install.
+  - New finding: `/users` defaults to `status=active`, so `users.json` never held disabled accounts, and a `disabled` column would always have read false. `fetch_users` now sends `status=all`.
+  Decision (per decision 3): steps 1, 2, 4, and 5 ship here; step 3 and both investigation questions moved to plan 010.
+  Built: `Users` and `UserGroups` schemas, `normalize_users` / `normalize_user_groups` wired into `normalize_api` (always written, empty with headers when no users), group names localized with any-locale fallback. `ojs api schema` documents both through `API_TABLES`. README and changelog updated. 6 new tests and 2 updated; 238 pass.
+- **2026-10-12T20:02:37-07:00** — Implemented: 6 commits ahead of `dev`.
+- **2026-10-12T20:04:21-07:00** — Review gate: `/code-review` at medium on PR #46, summary posted to the PR. No findings survived verification.
+  - Review follow-up: 4 candidates raised, none actioned. The duplicate-email concern with `status=all` was rejected because OJS 3.3 enforces a unique index on `users.email` (pkp-lib `users_email`). A missing-`id` crash (confidence 15) and a logging-style mismatch (25, no output change) were dropped as conscious no-ops.
+  - Check gate before merge: ruff check, ruff format --check, pyrefly, and pytest (238 passed).
+
+## Retrospective
+
+- The summary tables (steps 1, 2, 4, and 5) were as planned and small; decision 3 let them ship without waiting on the investigation, which needs a live install.
+- Reading the swagger snapshot before writing the schema surfaced a premise error in the plan: the fetch never pulled disabled accounts (`/users` defaults to `status=active`), so the planned `disabled` column would have been constant. Checking an endpoint's default filters belongs in any plan that builds on an existing dump.
+- The snapshot also showed the plan's `dateLastLogin` does not exist in the 3.3 `User` schema; plan 010 carries the corrected field list.
+- Step 3 moved whole to plan 010 rather than half-built here, so the users table's shape changes once, when the fetch path is chosen.
