@@ -66,3 +66,10 @@ published to PyPI) — unchanged from plans 004 and 007.
 - **2026-10-12T20:38:48-07:00** — PR opened: https://github.com/gitronald/ojs/pull/49
 - **2026-10-12T20:51:15-07:00** — Review gate passed; CI green on all four cells (3.11-3.14).
   - Review follow-up: `/code-review` at low raised two candidates, both on the planners hooks needing a `planners` executable outside the project venv. Conscious no-op: the old bare `planners validate` entry needed the same global tool, `uv run` falls back to PATH, and the entries match the template byte for byte.
+
+## Retrospective
+
+- The delta from 0.10.0 to 0.11.2 was small; the useful work was the diff triage, since two of the template's changes (the `*.md` ruff exclude and a per-repo `settings.local.json`) run against decisions this repo had already made.
+- Bumping the lock under the new ruff pin pulled ruff past the template's hook rev, so the repo now leads the template on that rev. Keeping the lock and the hook rev equal matters more than matching the template.
+- `.gitattributes` and the `ruff-check` hook id were already in place from plan 007, so this pass mostly finished the planners wiring (the `post-merge` hook) that the earlier pass had started.
+- A WSL update restarted the VM mid-close; every step up to that point was committed and pushed, so nothing had to be redone.
