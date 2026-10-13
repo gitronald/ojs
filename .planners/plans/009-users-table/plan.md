@@ -1,7 +1,7 @@
 ---
 id: 9
 slug: users-table
-status: active
+status: implemented
 branch: feature/users-table
 created: 2026-10-12T19:45:40-07:00
 concluded:
@@ -99,3 +99,4 @@ Record both answers in the Log before choosing the fetch path in step 3.
   - New finding: `/users` defaults to `status=active`, so `users.json` never held disabled accounts, and a `disabled` column would always have read false. `fetch_users` now sends `status=all`.
   Decision (per decision 3): steps 1, 2, 4, and 5 ship here; step 3 and both investigation questions moved to plan 010.
   Built: `Users` and `UserGroups` schemas, `normalize_users` / `normalize_user_groups` wired into `normalize_api` (always written, empty with headers when no users), group names localized with any-locale fallback. `ojs api schema` documents both through `API_TABLES`. README and changelog updated. 6 new tests and 2 updated; 238 pass.
+- **2026-10-12T20:02:37-07:00** — Implemented: 6 commits ahead of `dev`.
