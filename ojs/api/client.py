@@ -485,11 +485,15 @@ def fetch_all_submission_files(
 
 
 def fetch_users(base_url: str, api_key: str) -> list[dict[str, Any]]:
-    """Fetch all users from /users endpoint."""
+    """Fetch all users, active and disabled, from the /users endpoint.
+
+    The endpoint returns only active accounts unless ``status`` says otherwise,
+    so ``status=all`` is sent to include disabled ones.
+    """
     logger.info("Fetching users...")
     with _http_client() as client:
         url = f"{base_url}/api/v1/users"
-        return _paginate(client, url, {"apiToken": api_key})
+        return _paginate(client, url, {"apiToken": api_key, "status": "all"})
 
 
 def _stats_params(
