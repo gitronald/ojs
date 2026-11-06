@@ -29,7 +29,7 @@ from ojs.api.sync import (
     write_json,
 )
 from ojs.errors import HttpError
-from ojs.utils import strip_html
+from ojs.utils import strip_html, strip_html_lines
 
 
 class _FakeResponse:
@@ -96,6 +96,42 @@ def test_strip_html_decoded_brackets_not_restripped():
     df = pl.DataFrame({"x": ["use &lt;tag&gt; literally"]})
     out = df.with_columns(strip_html(pl.col("x")).alias("x"))["x"][0]
     assert out == "use <tag> literally"
+
+
+def test_strip_html_line_break_tags_any_case_and_attributes():
+    # Uppercase tags, <br> with attributes, and </div> still break the line.
+    df = pl.DataFrame({"x": ["a<BR>b<br class='x' />c</P>d</div>e</LI >f"]})
+    out = df.with_columns(strip_html(pl.col("x")).alias("x"))["x"][0]
+    assert out == "a\nb\nc\nd\ne\nf"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("a<br />b", "a\nb"),
+        ("Jane Doe<BR>J. Roe", "Jane Doe\nJ. Roe"),
+        ("<div>A</div><div>B</div>", "A\nB"),
+        ("<ul><li>A</li><li>B</li></ul>", "A\nB"),
+        ("a\rb\r\nc", "a\nb\nc"),
+        ("a&#10;b", "a\nb"),
+        ("\n  a \t\n\n \xa0\n b  \n", "a\nb"),
+        ("&lt;br&gt; stays", "<br> stays"),
+        ("<br />\r\n &nbsp; <p></p>", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_strip_html_lines(raw, expected):
+    df = pl.DataFrame({"x": [raw]}, schema={"x": pl.String})
+    assert df.select(strip_html_lines(pl.col("x")))["x"][0] == expected
+
+
+def test_strip_html_lines_all_null_column():
+    df = pl.DataFrame({"x": [None, None]})
+    assert df.schema["x"] == pl.Null
+    out = df.select(strip_html_lines(pl.col("x")))
+    assert out["x"].to_list() == [None, None]
+    assert out.schema["x"] == pl.String
 
 
 # --- Submissions / authors null-safety ---------------------------------------

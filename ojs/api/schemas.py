@@ -64,7 +64,7 @@ class Submissions(Table):
         "free text in plain text (HTML stripped): one line per line the author "
         "typed, blank lines dropped. Kept as typed, including placeholder "
         "values such as 'N/A'; null when blank.",
-        "publications[0].recommendedReviewers",
+        "publications[].recommendedReviewers",
     )
     status = Column(pl.String, "Human-readable submission status label.", "statusLabel")
     url = Column(

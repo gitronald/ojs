@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 - Add `recommended_reviewers` to the `submissions` table from `ojs api norm`: the reviewers an author recommended at submission (the publication's `recommendedReviewers` field), as plain text with one line per line the author typed. Blank values are null; placeholder text such as `N/A` is kept as typed.
+- HTML stripping for abstracts and review comments now breaks lines at uppercase tags (`<BR>`, `</P>`), at `<br>` tags with attributes, at `</div>`, and at a lone carriage return, where adjacent lines used to run together.
 
 ## [0.11.1] - 2026-10-12
 
