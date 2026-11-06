@@ -214,6 +214,34 @@ def test_api_run_norm_returns_tables_and_row_counts(tmp_path):
         assert pl.read_csv(result.out_dir / f"{name}.csv").height == rows
 
 
+def test_api_run_norm_writes_recommended_reviewers(tmp_path):
+    import polars as pl
+
+    from ojs.api.schemas import Submissions
+
+    api_dir = tmp_path / "api"
+    _write_api_dumps(api_dir)
+    pubs_path = api_dir / "publications.json"
+    pubs = json.loads(pubs_path.read_text())
+    pubs[0]["recommendedReviewers"] = {
+        "en_US": "Jane Doe (jane.doe@example.com)<br />\r\n<br />\r\nJ. Roe"
+    }
+    pubs_path.write_text(json.dumps(pubs))
+
+    result = api_run.run_norm(api_dir=api_dir)
+
+    df = pl.read_csv(result.out_dir / "submissions.csv")
+    dtype = Submissions.polars_schema()["recommended_reviewers"]
+    assert df.schema["recommended_reviewers"] == dtype
+    assert df["recommended_reviewers"].to_list() == [
+        "Jane Doe (jane.doe@example.com)\nJ. Roe"
+    ]
+    # The column sits where the schema declares it, right after keywords.
+    assert df.columns.index("recommended_reviewers") == (
+        df.columns.index("keywords") + 1
+    )
+
+
 def test_api_run_norm_omits_absent_optional_tables(tmp_path):
     api_dir = tmp_path / "api"
     _write_api_dumps(api_dir, optional=False)

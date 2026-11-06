@@ -7,8 +7,8 @@ from typing import Any
 import polars as pl
 
 
-def strip_html(col: pl.Expr) -> pl.Expr:
-    """Strip HTML tags from a string column, decode HTML entities, clean whitespace.
+def _html_to_text(col: pl.Expr) -> pl.Expr:
+    """Turn line-breaking tags into newlines, drop other tags, decode entities.
 
     Casts to ``String`` first so an all-null column (inferred as the ``Null``
     dtype before the schema cast runs) passes through cleanly instead of raising
@@ -16,7 +16,7 @@ def strip_html(col: pl.Expr) -> pl.Expr:
     ``html.unescape``, which handles named, decimal, *and* hex entities in one
     pass -- so entity-encoded angle brackets (``&lt;tag&gt;``) survive as literal
     text rather than being re-stripped. ``&nbsp;`` decodes to ``\\xa0``, which is
-    normalized back to a regular space to preserve the prior whitespace behavior.
+    normalized back to a regular space, and ``\\r\\n`` becomes ``\\n``.
     """
     return (
         col.cast(pl.String)
@@ -27,9 +27,34 @@ def strip_html(col: pl.Expr) -> pl.Expr:
         .map_elements(html.unescape, return_dtype=pl.String)
         .str.replace_all("\xa0", " ")
         .str.replace_all(r"\r\n", "\n")
-        .str.replace_all(r"\n{3,}", "\n\n")
-        .str.strip_chars()
     )
+
+
+def strip_html(col: pl.Expr) -> pl.Expr:
+    """Strip HTML tags from a string column, decode HTML entities, clean whitespace.
+
+    Runs of three or more newlines collapse to a paragraph break, and the
+    result is trimmed. See ``_html_to_text`` for the tag and entity handling.
+    """
+    return _html_to_text(col).str.replace_all(r"\n{3,}", "\n\n").str.strip_chars()
+
+
+def strip_html_lines(col: pl.Expr) -> pl.Expr:
+    """Strip HTML like ``strip_html`` but keep one line per line of input.
+
+    For free text an author typed line by line (e.g. reviewer recommendations):
+    ``<br />`` and line breaks become single newlines, each line is trimmed,
+    blank lines are dropped, and a value with no text left becomes null.
+    """
+    lines = (
+        _html_to_text(col)
+        .str.replace_all("\r", "\n")
+        .str.split("\n")
+        .list.eval(pl.element().str.strip_chars())
+        .list.eval(pl.element().filter(pl.element() != ""))
+        .list.join("\n")
+    )
+    return pl.when(lines != "").then(lines)
 
 
 def localized(

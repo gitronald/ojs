@@ -125,6 +125,57 @@ def test_normalize_submissions_keywords_present():
     assert normalize_submissions(subs, pubs)["keywords"][0] == "a; b"
 
 
+def _subs_with_recommended(*values: object) -> pl.DataFrame:
+    """Normalize one submission per value; ``...`` leaves the key out."""
+    subs = [
+        {"id": i, "publications": [{"sectionId": 1, "fullTitle": {"en_US": "T"}}]}
+        for i in range(1, len(values) + 1)
+    ]
+    pubs = []
+    for i, value in enumerate(values, start=1):
+        pub: dict[str, object] = {"_submission_id": i, "authors": []}
+        if value is not ...:
+            pub["recommendedReviewers"] = value
+        pubs.append(pub)
+    return normalize_submissions(subs, pubs)
+
+
+def test_normalize_submissions_recommended_reviewers_keeps_lines():
+    raw = (
+        "Jane Doe, Example University (jane.doe@example.com) - works on X"
+        "<br />\r\n<br />\r\n"
+        "  <strong>J. Roe</strong>, Sample Institute (j.roe@example.com) "
+        "&amp; co-authors&nbsp;<br />\r\n"
+        "<p>A. N. Other (a.other@example.com)</p>"
+    )
+    df = _subs_with_recommended({"en_US": raw})
+    assert df["recommended_reviewers"].to_list() == [
+        "Jane Doe, Example University (jane.doe@example.com) - works on X\n"
+        "J. Roe, Sample Institute (j.roe@example.com) & co-authors\n"
+        "A. N. Other (a.other@example.com)"
+    ]
+    assert df.schema["recommended_reviewers"] == pl.String
+
+
+def test_normalize_submissions_recommended_reviewers_blank_is_null():
+    df = _subs_with_recommended(
+        None, {"en_US": None}, {"en_US": ""}, "", {"en_US": "<br />\r\n  <br />"}
+    )
+    assert df["recommended_reviewers"].to_list() == [None] * 5
+    assert df.schema["recommended_reviewers"] == pl.String
+
+
+def test_normalize_submissions_recommended_reviewers_missing_key_is_null():
+    df = _subs_with_recommended(...)
+    assert df["recommended_reviewers"].to_list() == [None]
+    assert df.schema["recommended_reviewers"] == pl.String
+
+
+def test_normalize_submissions_recommended_reviewers_keeps_placeholders():
+    df = _subs_with_recommended({"en_US": "N/A"}, {"en_US": "None"})
+    assert df["recommended_reviewers"].to_list() == ["N/A", "None"]
+
+
 def test_normalize_authors_handles_null_seq():
     pubs = [
         {

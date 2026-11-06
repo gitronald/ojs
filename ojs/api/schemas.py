@@ -58,6 +58,14 @@ class Submissions(Table):
     keywords = Column(
         pl.String, "Semicolon-joined en_US keywords.", "publications[].keywords"
     )
+    recommended_reviewers = Column(
+        pl.String,
+        "Reviewers the author recommended at submission, as the author's own "
+        "free text in plain text (HTML stripped): one line per line the author "
+        "typed, blank lines dropped. Kept as typed, including placeholder "
+        "values such as 'N/A'; null when blank.",
+        "publications[0].recommendedReviewers",
+    )
     status = Column(pl.String, "Human-readable submission status label.", "statusLabel")
     url = Column(
         pl.String, "Published URL of the submission.", "publications[0].urlPublished"
