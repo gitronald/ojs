@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Add `recommended_reviewers` to the `submissions` table from `ojs api norm`: the reviewers an author recommended at submission (the publication's `recommendedReviewers` field), as plain text with one line per line the author typed. Blank values are null; placeholder text such as `N/A` is kept as typed.
+
 ## [0.11.1] - 2026-10-12
 
 - Sync the development tooling with project template 0.11.2: pin the `ruff` dev dependency to the 0.16 minor and bump it and the ruff pre-commit hook to 0.16.10, run pre-commit hooks on commit only, regenerate the plan index after a merge, and bump the `setup-uv` action to v10.2.0 in both workflows.
