@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-11-06
+
+- Add `recommended_reviewers` to the `submissions` table from `ojs api norm`: the reviewers an author recommended at submission (the publication's `recommendedReviewers` field), as plain text with one line per line the author typed. Blank values are null; placeholder text such as `N/A` is kept as typed.
+- HTML stripping for abstracts and review comments now breaks lines at uppercase tags (`<BR>`, `</P>`), at `<br>` tags with attributes, at `</div>`, and at a lone carriage return, where adjacent lines used to run together.
+- Sync the development tooling with project template 0.11.7: bump the `ruff` dev dependency and pre-commit hook to 0.17.1, update the `pyrefly` and `pytest` pins, and sync the GitHub workflows and Dependabot config. Refresh the lockfile to releases past the Dependabot cooldown, including `certifi` 2026.10.19 past a critical advisory (GHSA-6q48-6c7w-9gw2), and `filelock` 4.2.9 and `virtualenv` 21.15.6 past their open advisories. `filelock` and `virtualenv` are development-only dependencies via `pre-commit`.
+
 ## [0.11.1] - 2026-10-12
 
 - Sync the development tooling with project template 0.11.2: pin the `ruff` dev dependency to the 0.16 minor and bump it and the ruff pre-commit hook to 0.16.10, run pre-commit hooks on commit only, regenerate the plan index after a merge, and bump the `setup-uv` action to v10.2.0 in both workflows.

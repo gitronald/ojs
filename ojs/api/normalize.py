@@ -8,7 +8,7 @@ import polars as pl
 
 from ojs.api import schemas
 from ojs.api.client import current_publication
-from ojs.utils import localized, log_sample, strip_html
+from ojs.utils import localized, log_sample, strip_html, strip_html_lines
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,10 @@ def normalize_submissions(
         keywords_list = (pub_full.get("keywords") or {}).get("en_US", [])
         keywords = "; ".join(keywords_list) if keywords_list else None
 
+        # Author-recommended reviewers from full publication (HTML -> plain
+        # text lines, below). Free text, so placeholders are kept as typed.
+        recommended_reviewers = localized(pub_full.get("recommendedReviewers"))
+
         # Authors from full publication (`or []` guards an explicit JSON null).
         authors = pub_full.get("authors") or []
         author_count = len(authors)
@@ -116,6 +120,7 @@ def normalize_submissions(
                 "abstract": abstract,
                 "submission_type": submission_type,
                 "keywords": keywords,
+                "recommended_reviewers": recommended_reviewers,
                 "status": sub.get("statusLabel", None),
                 "url": pub_summary.get("urlPublished", None),
                 "doi": pub_summary.get("pub-id::doi", None),
@@ -135,7 +140,12 @@ def normalize_submissions(
         return pl.DataFrame(schema=schemas.Submissions.polars_schema())
 
     df = pl.DataFrame(rows)
-    df = df.with_columns(strip_html(pl.col("abstract")).alias("abstract"))
+    df = df.with_columns(
+        strip_html(pl.col("abstract")).alias("abstract"),
+        strip_html_lines(pl.col("recommended_reviewers")).alias(
+            "recommended_reviewers"
+        ),
+    )
 
     # Schema-driven cast parses date_submitted/last_modified/date_last_activity
     # (Datetime) and date_published (Date), and enforces the integer columns'
