@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-11-13
+
+- Sync the development tooling with repotemplates 0.15.0: bump the ruff pre-commit hook to v0.17.3 and relock `ruff` to match, bump the `setup-uv` action to v10.3.3 in both workflows, rename the template stamp table in `pyproject.toml` to `[tool.repotemplates]`, and point the Dependabot config's guide link at the renamed template repo.
+- No runtime code changes; CLI and library behavior are unchanged.
+
 ## [0.11.2] - 2026-11-06
 
 - Add `recommended_reviewers` to the `submissions` table from `ojs api norm`: the reviewers an author recommended at submission (the publication's `recommendedReviewers` field), as plain text with one line per line the author typed. Blank values are null; placeholder text such as `N/A` is kept as typed.
